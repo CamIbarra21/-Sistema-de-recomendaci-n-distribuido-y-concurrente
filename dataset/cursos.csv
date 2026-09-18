@@ -1,0 +1,181 @@
+course_id,nucleo,nivel,titulo,duracion_min
+MAT_0000,Matematica,0,Numeros naturales - Modulo 1,25
+MAT_0001,Matematica,1,Fracciones - Modulo 1,30
+MAT_0002,Matematica,2,Decimales - Modulo 1,20
+MAT_0003,Matematica,3,Proporcionalidad - Modulo 1,30
+MAT_0004,Matematica,4,Ecuaciones lineales - Modulo 1,30
+MAT_0005,Matematica,5,Ecuaciones cuadraticas - Modulo 1,15
+MAT_0006,Matematica,0,Funciones - Modulo 1,20
+MAT_0007,Matematica,1,Geometria plana - Modulo 1,20
+MAT_0008,Matematica,2,Geometria del espacio - Modulo 1,20
+MAT_0009,Matematica,3,Trigonometria - Modulo 1,30
+MAT_0010,Matematica,4,Estadistica descriptiva - Modulo 1,25
+MAT_0011,Matematica,5,Probabilidad - Modulo 1,20
+MAT_0012,Matematica,0,Combinatoria - Modulo 1,30
+MAT_0013,Matematica,1,Limites - Modulo 1,15
+MAT_0014,Matematica,2,Derivadas - Modulo 1,25
+MAT_0015,Matematica,3,Integrales - Modulo 1,15
+MAT_0016,Matematica,4,Matrices - Modulo 1,25
+MAT_0017,Matematica,5,Vectores - Modulo 1,30
+MAT_0018,Matematica,0,Logica matematica - Modulo 1,10
+MAT_0019,Matematica,1,Sucesiones y series - Modulo 1,25
+MAT_0020,Matematica,2,Numeros naturales - Modulo 2,15
+MAT_0021,Matematica,3,Fracciones - Modulo 2,30
+MAT_0022,Matematica,4,Decimales - Modulo 2,25
+MAT_0023,Matematica,5,Proporcionalidad - Modulo 2,10
+MAT_0024,Matematica,0,Ecuaciones lineales - Modulo 2,10
+MAT_0025,Matematica,1,Ecuaciones cuadraticas - Modulo 2,20
+MAT_0026,Matematica,2,Funciones - Modulo 2,20
+MAT_0027,Matematica,3,Geometria plana - Modulo 2,15
+MAT_0028,Matematica,4,Geometria del espacio - Modulo 2,25
+MAT_0029,Matematica,5,Trigonometria - Modulo 2,25
+MAT_0030,Matematica,0,Estadistica descriptiva - Modulo 2,20
+MAT_0031,Matematica,1,Probabilidad - Modulo 2,25
+MAT_0032,Matematica,2,Combinatoria - Modulo 2,25
+MAT_0033,Matematica,3,Limites - Modulo 2,10
+MAT_0034,Matematica,4,Derivadas - Modulo 2,20
+MAT_0035,Matematica,5,Integrales - Modulo 2,30
+MAT_0036,Matematica,0,Matrices - Modulo 2,20
+MAT_0037,Matematica,1,Vectores - Modulo 2,30
+MAT_0038,Matematica,2,Logica matematica - Modulo 2,10
+MAT_0039,Matematica,3,Sucesiones y series - Modulo 2,15
+MAT_0040,Matematica,4,Numeros naturales - Modulo 3,25
+MAT_0041,Matematica,5,Fracciones - Modulo 3,10
+MAT_0042,Matematica,0,Decimales - Modulo 3,25
+MAT_0043,Matematica,1,Proporcionalidad - Modulo 3,15
+MAT_0044,Matematica,2,Ecuaciones lineales - Modulo 3,15
+MAT_0045,Matematica,3,Ecuaciones cuadraticas - Modulo 3,10
+MAT_0046,Matematica,4,Funciones - Modulo 3,15
+MAT_0047,Matematica,5,Geometria plana - Modulo 3,30
+MAT_0048,Matematica,0,Geometria del espacio - Modulo 3,15
+MAT_0049,Matematica,1,Trigonometria - Modulo 3,25
+MAT_0050,Matematica,2,Estadistica descriptiva - Modulo 3,25
+MAT_0051,Matematica,3,Probabilidad - Modulo 3,25
+MAT_0052,Matematica,4,Combinatoria - Modulo 3,25
+MAT_0053,Matematica,5,Limites - Modulo 3,30
+MAT_0054,Matematica,0,Derivadas - Modulo 3,20
+MAT_0055,Matematica,1,Integrales - Modulo 3,10
+MAT_0056,Matematica,2,Matrices - Modulo 3,25
+MAT_0057,Matematica,3,Vectores - Modulo 3,15
+MAT_0058,Matematica,4,Logica matematica - Modulo 3,25
+MAT_0059,Matematica,5,Sucesiones y series - Modulo 3,15
+LEC_0060,Lectura,0,Comprension literal - Modulo 1,15
+LEC_0061,Lectura,1,Comprension inferencial - Modulo 1,25
+LEC_0062,Lectura,2,Comprension critica - Modulo 1,30
+LEC_0063,Lectura,3,Vocabulario en contexto - Modulo 1,15
+LEC_0064,Lectura,4,Estructura del texto narrativo - Modulo 1,15
+LEC_0065,Lectura,5,Estructura del texto argumentativo - Modulo 1,25
+LEC_0066,Lectura,0,Identificacion de ideas principales - Modulo 1,15
+LEC_0067,Lectura,1,Analisis de textos expositivos - Modulo 1,15
+LEC_0068,Lectura,2,Interpretacion de graficos y tablas - Modulo 1,25
+LEC_0069,Lectura,3,Lectura de poesia - Modulo 1,25
+LEC_0070,Lectura,4,Analisis de textos periodisticos - Modulo 1,10
+LEC_0071,Lectura,5,Deteccion de sesgos y falacias - Modulo 1,30
+LEC_0072,Lectura,0,Sintesis de multiples fuentes - Modulo 1,30
+LEC_0073,Lectura,1,Redaccion de resumenes - Modulo 1,15
+LEC_0074,Lectura,2,Analisis de textos historicos - Modulo 1,30
+LEC_0075,Lectura,3,Comprension de instrucciones tecnicas - Modulo 1,15
+LEC_0076,Lectura,4,Lectura de textos cientificos - Modulo 1,10
+LEC_0077,Lectura,5,Retorica y persuasion - Modulo 1,25
+LEC_0078,Lectura,0,Analisis comparativo de autores - Modulo 1,25
+LEC_0079,Lectura,1,Lectura critica de medios digitales - Modulo 1,25
+LEC_0080,Lectura,2,Comprension literal - Modulo 2,30
+LEC_0081,Lectura,3,Comprension inferencial - Modulo 2,10
+LEC_0082,Lectura,4,Comprension critica - Modulo 2,30
+LEC_0083,Lectura,5,Vocabulario en contexto - Modulo 2,30
+LEC_0084,Lectura,0,Estructura del texto narrativo - Modulo 2,10
+LEC_0085,Lectura,1,Estructura del texto argumentativo - Modulo 2,10
+LEC_0086,Lectura,2,Identificacion de ideas principales - Modulo 2,10
+LEC_0087,Lectura,3,Analisis de textos expositivos - Modulo 2,10
+LEC_0088,Lectura,4,Interpretacion de graficos y tablas - Modulo 2,25
+LEC_0089,Lectura,5,Lectura de poesia - Modulo 2,20
+LEC_0090,Lectura,0,Analisis de textos periodisticos - Modulo 2,20
+LEC_0091,Lectura,1,Deteccion de sesgos y falacias - Modulo 2,10
+LEC_0092,Lectura,2,Sintesis de multiples fuentes - Modulo 2,20
+LEC_0093,Lectura,3,Redaccion de resumenes - Modulo 2,20
+LEC_0094,Lectura,4,Analisis de textos historicos - Modulo 2,10
+LEC_0095,Lectura,5,Comprension de instrucciones tecnicas - Modulo 2,20
+LEC_0096,Lectura,0,Lectura de textos cientificos - Modulo 2,30
+LEC_0097,Lectura,1,Retorica y persuasion - Modulo 2,15
+LEC_0098,Lectura,2,Analisis comparativo de autores - Modulo 2,15
+LEC_0099,Lectura,3,Lectura critica de medios digitales - Modulo 2,10
+LEC_0100,Lectura,4,Comprension literal - Modulo 3,25
+LEC_0101,Lectura,5,Comprension inferencial - Modulo 3,10
+LEC_0102,Lectura,0,Comprension critica - Modulo 3,25
+LEC_0103,Lectura,1,Vocabulario en contexto - Modulo 3,15
+LEC_0104,Lectura,2,Estructura del texto narrativo - Modulo 3,10
+LEC_0105,Lectura,3,Estructura del texto argumentativo - Modulo 3,30
+LEC_0106,Lectura,4,Identificacion de ideas principales - Modulo 3,20
+LEC_0107,Lectura,5,Analisis de textos expositivos - Modulo 3,25
+LEC_0108,Lectura,0,Interpretacion de graficos y tablas - Modulo 3,20
+LEC_0109,Lectura,1,Lectura de poesia - Modulo 3,20
+LEC_0110,Lectura,2,Analisis de textos periodisticos - Modulo 3,10
+LEC_0111,Lectura,3,Deteccion de sesgos y falacias - Modulo 3,20
+LEC_0112,Lectura,4,Sintesis de multiples fuentes - Modulo 3,30
+LEC_0113,Lectura,5,Redaccion de resumenes - Modulo 3,20
+LEC_0114,Lectura,0,Analisis de textos historicos - Modulo 3,10
+LEC_0115,Lectura,1,Comprension de instrucciones tecnicas - Modulo 3,30
+LEC_0116,Lectura,2,Lectura de textos cientificos - Modulo 3,15
+LEC_0117,Lectura,3,Retorica y persuasion - Modulo 3,20
+LEC_0118,Lectura,4,Analisis comparativo de autores - Modulo 3,10
+LEC_0119,Lectura,5,Lectura critica de medios digitales - Modulo 3,15
+CIE_0120,Ciencias,0,Metodo cientifico - Modulo 1,15
+CIE_0121,Ciencias,1,Materia y energia - Modulo 1,25
+CIE_0122,Ciencias,2,Celula y organizacion biologica - Modulo 1,30
+CIE_0123,Ciencias,3,Genetica basica - Modulo 1,20
+CIE_0124,Ciencias,4,Ecosistemas - Modulo 1,10
+CIE_0125,Ciencias,5,Fisica del movimiento - Modulo 1,25
+CIE_0126,Ciencias,0,Fuerzas y leyes de Newton - Modulo 1,30
+CIE_0127,Ciencias,1,Electricidad basica - Modulo 1,25
+CIE_0128,Ciencias,2,Quimica de la materia - Modulo 1,30
+CIE_0129,Ciencias,3,Reacciones quimicas - Modulo 1,30
+CIE_0130,Ciencias,4,Sistema solar y astronomia - Modulo 1,20
+CIE_0131,Ciencias,5,Geologia basica - Modulo 1,30
+CIE_0132,Ciencias,0,Cambio climatico - Modulo 1,25
+CIE_0133,Ciencias,1,Cuerpo humano - Modulo 1,30
+CIE_0134,Ciencias,2,Evolucion biologica - Modulo 1,20
+CIE_0135,Ciencias,3,Ondas y sonido - Modulo 1,20
+CIE_0136,Ciencias,4,Optica basica - Modulo 1,25
+CIE_0137,Ciencias,5,Termodinamica basica - Modulo 1,15
+CIE_0138,Ciencias,0,Quimica organica introductoria - Modulo 1,15
+CIE_0139,Ciencias,1,Pensamiento cientifico y evidencia - Modulo 1,30
+CIE_0140,Ciencias,2,Metodo cientifico - Modulo 2,10
+CIE_0141,Ciencias,3,Materia y energia - Modulo 2,30
+CIE_0142,Ciencias,4,Celula y organizacion biologica - Modulo 2,25
+CIE_0143,Ciencias,5,Genetica basica - Modulo 2,25
+CIE_0144,Ciencias,0,Ecosistemas - Modulo 2,25
+CIE_0145,Ciencias,1,Fisica del movimiento - Modulo 2,25
+CIE_0146,Ciencias,2,Fuerzas y leyes de Newton - Modulo 2,25
+CIE_0147,Ciencias,3,Electricidad basica - Modulo 2,20
+CIE_0148,Ciencias,4,Quimica de la materia - Modulo 2,15
+CIE_0149,Ciencias,5,Reacciones quimicas - Modulo 2,25
+CIE_0150,Ciencias,0,Sistema solar y astronomia - Modulo 2,10
+CIE_0151,Ciencias,1,Geologia basica - Modulo 2,10
+CIE_0152,Ciencias,2,Cambio climatico - Modulo 2,10
+CIE_0153,Ciencias,3,Cuerpo humano - Modulo 2,10
+CIE_0154,Ciencias,4,Evolucion biologica - Modulo 2,20
+CIE_0155,Ciencias,5,Ondas y sonido - Modulo 2,10
+CIE_0156,Ciencias,0,Optica basica - Modulo 2,25
+CIE_0157,Ciencias,1,Termodinamica basica - Modulo 2,30
+CIE_0158,Ciencias,2,Quimica organica introductoria - Modulo 2,10
+CIE_0159,Ciencias,3,Pensamiento cientifico y evidencia - Modulo 2,20
+CIE_0160,Ciencias,4,Metodo cientifico - Modulo 3,20
+CIE_0161,Ciencias,5,Materia y energia - Modulo 3,10
+CIE_0162,Ciencias,0,Celula y organizacion biologica - Modulo 3,30
+CIE_0163,Ciencias,1,Genetica basica - Modulo 3,10
+CIE_0164,Ciencias,2,Ecosistemas - Modulo 3,20
+CIE_0165,Ciencias,3,Fisica del movimiento - Modulo 3,15
+CIE_0166,Ciencias,4,Fuerzas y leyes de Newton - Modulo 3,25
+CIE_0167,Ciencias,5,Electricidad basica - Modulo 3,20
+CIE_0168,Ciencias,0,Quimica de la materia - Modulo 3,10
+CIE_0169,Ciencias,1,Reacciones quimicas - Modulo 3,25
+CIE_0170,Ciencias,2,Sistema solar y astronomia - Modulo 3,10
+CIE_0171,Ciencias,3,Geologia basica - Modulo 3,10
+CIE_0172,Ciencias,4,Cambio climatico - Modulo 3,15
+CIE_0173,Ciencias,5,Cuerpo humano - Modulo 3,25
+CIE_0174,Ciencias,0,Evolucion biologica - Modulo 3,25
+CIE_0175,Ciencias,1,Ondas y sonido - Modulo 3,15
+CIE_0176,Ciencias,2,Optica basica - Modulo 3,20
+CIE_0177,Ciencias,3,Termodinamica basica - Modulo 3,10
+CIE_0178,Ciencias,4,Quimica organica introductoria - Modulo 3,30
+CIE_0179,Ciencias,5,Pensamiento cientifico y evidencia - Modulo 3,10
