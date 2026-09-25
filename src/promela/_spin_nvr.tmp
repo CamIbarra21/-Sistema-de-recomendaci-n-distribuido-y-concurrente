@@ -1,0 +1,11 @@
+never todos_los_workers_terminan {    /* !([] ((! (productor_termino_de_enviar)) || (<> ((cantidad_workers_finalizados==2))))) */
+T0_init:
+	do
+	:: (! ((! (productor_termino_de_enviar))) && ! (((cantidad_workers_finalizados==2)))) -> goto accept_S4
+	:: (1) -> goto T0_init
+	od;
+accept_S4:
+	do
+	:: (! (((cantidad_workers_finalizados==2)))) -> goto accept_S4
+	od;
+}
