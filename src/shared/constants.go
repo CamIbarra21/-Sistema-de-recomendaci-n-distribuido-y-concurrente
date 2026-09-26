@@ -1,0 +1,7 @@
+package shared
+
+const NUM_NEIGHBORS = 5
+const NUM_RECOMMENDATIONS = 3
+const WEIGHT_AFFINITY = 0.25
+const WEIGHT_SKILL = 0.25
+const WEIGHT_COLLABORATION = 0.50
