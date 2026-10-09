@@ -5,7 +5,7 @@ import (
 	"math/bits"
 )
 
-func Jaccard(a, b []uint64) (float32, error) {
+func Jaccard(a, b []uint64) (float64, error) {
 	if len(a) != len(b) {
 		return 0, fmt.Errorf("jaccard: mask with different sizes: %d vs %d", len(a), len(b))
 	}
@@ -20,5 +20,5 @@ func Jaccard(a, b []uint64) (float32, error) {
 		return 0, nil
 	}
 
-	return float32(common) / float32(total), nil
+	return float64(common) / float64(total), nil
 }

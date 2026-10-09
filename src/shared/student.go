@@ -1,18 +1,9 @@
 package shared
 
+// Student guarda un estudiante por núcleo, indexado por CoreMath,
+// CoreReading y CoreScience. ID es el índice denso (orden de aparición en
+// estudiantes.csv).
 type Student struct {
-	ID      ID
-	Math    Core
-	Reading Core
-	Science Core
-}
-
-var NextID ID = 0
-
-func (s *Student) Init(math, reading, science Core) {
-	s.ID = NextID
-	NextID++
-	s.Math = math
-	s.Reading = reading
-	s.Science = science
+	ID    ID
+	Cores [NumCores]Core
 }
