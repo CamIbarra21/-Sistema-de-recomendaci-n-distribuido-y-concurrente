@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"time"
 
+	"recommendation/concurrent"
 	"recommendation/sequential"
 	"recommendation/shared"
 )
@@ -24,9 +25,6 @@ func main() {
 		flag.PrintDefaults()
 		os.Exit(2)
 	}
-	if *conc {
-		fail(fmt.Errorf("el modo concurrente (%d workers) aún no está implementado", *workers))
-	}
 
 	start := time.Now()
 	d, err := shared.LoadDataset(*dataDir)
@@ -35,10 +33,32 @@ func main() {
 	}
 	fmt.Printf("datos cargados: %d estudiantes, %d cursos (%v)\n", d.NumStudents(), d.NumCourses(), time.Since(start))
 
+	var seqRes, concRes []shared.Result
+	var tSeq, tConc time.Duration
 	// el tiempo mide solo la fase de recomendación, sin la carga
-	start = time.Now()
-	results := sequential.Run(d)
-	fmt.Printf("secuencial: %v\n", time.Since(start))
+	if *seq {
+		start = time.Now()
+		seqRes = sequential.Run(d)
+		tSeq = time.Since(start)
+		fmt.Printf("secuencial: %v\n", tSeq)
+	}
+	if *conc {
+		start = time.Now()
+		concRes = concurrent.Run(d, *workers)
+		tConc = time.Since(start)
+		fmt.Printf("concurrente (%d workers): %v\n", *workers, tConc)
+	}
+
+	results := seqRes
+	if *seq && *conc {
+		if !shared.EqualResults(seqRes, concRes) {
+			fail(fmt.Errorf("los resultados secuencial y concurrente DIFIEREN"))
+		}
+		speedup := float64(tSeq) / float64(tConc)
+		fmt.Printf("resultados idénticos. speedup: %.2fx, eficiencia: %.2f\n", speedup, speedup/float64(*workers))
+	} else if *conc {
+		results = concRes
+	}
 
 	if *out != "" {
 		shared.SortResults(results)
