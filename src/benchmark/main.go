@@ -117,6 +117,10 @@ func main() {
 	}
 
 	report(*outPath, *hardware, *reps, d, seq, all[1:])
+	if err := writeCharts(filepath.Dir(*outPath), *reps, seq, all[1:]); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
 	fmt.Println("escrito:", *outPath)
 }
 
@@ -131,6 +135,7 @@ func report(path, hardware string, reps int, d *shared.Dataset, seq *series, con
 	fmt.Fprintf(&b, "- Método: 1 corrida de calentamiento + %d repeticiones por configuración, intercaladas. El tiempo mide solo la fase de recomendación (sin la carga de CSV); incluye ordenar los resultados. Antes de medir se verificó que todas las configuraciones dan resultados idénticos al secuencial.\n", reps)
 	fmt.Fprintf(&b, "- **speedup = T_sec / T_conc** y **eficiencia = speedup / workers**, ambos con la **mediana**. `f` es la fracción serial estimada con la métrica de Karp-Flatt: f = (1/S − 1/p) / (1 − 1/p).\n\n")
 
+	b.WriteString("## Gráficos\n\n![Speedup](speedup.svg)\n\n![Eficiencia](eficiencia.svg)\n\n")
 	fmt.Fprintf(&b, "## Secuencial\n\n| mediana (s) | media (s) | desv. est. (s) | mín (s) | máx (s) |\n|---|---|---|---|---|\n")
 	fmt.Fprintf(&b, "| %.3f | %.3f | %.3f | %.3f | %.3f |\n\n", st.median, st.mean, st.std, st.min, st.max)
 

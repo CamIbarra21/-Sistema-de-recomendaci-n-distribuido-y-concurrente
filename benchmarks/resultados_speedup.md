@@ -1,6 +1,6 @@
 # Resultados de speedup
 
-Generado con `go run ./benchmark` el 2026-10-09 16:45.
+Generado con `go run ./benchmark` el 2026-10-09 17:01.
 
 ## Entorno
 
@@ -10,31 +10,37 @@ Generado con `go run ./benchmark` el 2026-10-09 16:45.
 - Método: 1 corrida de calentamiento + 10 repeticiones por configuración, intercaladas. El tiempo mide solo la fase de recomendación (sin la carga de CSV); incluye ordenar los resultados. Antes de medir se verificó que todas las configuraciones dan resultados idénticos al secuencial.
 - **speedup = T_sec / T_conc** y **eficiencia = speedup / workers**, ambos con la **mediana**. `f` es la fracción serial estimada con la métrica de Karp-Flatt: f = (1/S − 1/p) / (1 − 1/p).
 
+## Gráficos
+
+![Speedup](speedup.svg)
+
+![Eficiencia](eficiencia.svg)
+
 ## Secuencial
 
 | mediana (s) | media (s) | desv. est. (s) | mín (s) | máx (s) |
 |---|---|---|---|---|
-| 7.327 | 7.070 | 1.018 | 4.232 | 7.801 |
+| 4.158 | 4.196 | 0.197 | 3.983 | 4.678 |
 
 ## Concurrente: productor / workers / recolector (canal de resultados)
 
 | workers | mediana (s) | media (s) | desv. est. (s) | mín (s) | máx (s) | speedup | eficiencia | f |
 |---|---|---|---|---|---|---|---|---|
-| 1 | 7.972 | 7.704 | 1.098 | 4.911 | 8.631 | 0.92x | 0.92 | — |
-| 2 | 4.668 | 4.479 | 0.587 | 2.838 | 4.802 | 1.57x | 0.78 | 0.274 |
-| 4 | 2.547 | 2.427 | 0.352 | 1.521 | 2.662 | 2.88x | 0.72 | 0.130 |
-| 8 | 1.396 | 1.250 | 0.282 | 0.639 | 1.435 | 5.25x | 0.66 | 0.075 |
-| 16 | 0.801 | 0.776 | 0.087 | 0.548 | 0.857 | 9.15x | 0.57 | 0.050 |
+| 1 | 4.415 | 4.517 | 0.299 | 4.162 | 5.032 | 0.94x | 0.94 | — |
+| 2 | 2.931 | 2.954 | 0.133 | 2.753 | 3.169 | 1.42x | 0.71 | 0.410 |
+| 4 | 1.554 | 1.572 | 0.059 | 1.519 | 1.710 | 2.68x | 0.67 | 0.165 |
+| 8 | 0.844 | 0.883 | 0.066 | 0.827 | 0.988 | 4.93x | 0.62 | 0.089 |
+| 16 | 0.579 | 0.608 | 0.109 | 0.517 | 0.868 | 7.18x | 0.45 | 0.082 |
 
 ## Concurrente: variante con slice pre-asignado (sin canal de resultados)
 
 | workers | mediana (s) | media (s) | desv. est. (s) | mín (s) | máx (s) | speedup | eficiencia | f |
 |---|---|---|---|---|---|---|---|---|
-| 1 | 7.994 | 7.719 | 1.433 | 3.843 | 8.907 | 0.92x | 0.92 | — |
-| 2 | 4.791 | 4.626 | 0.528 | 3.139 | 4.932 | 1.53x | 0.76 | 0.308 |
-| 4 | 2.629 | 2.531 | 0.320 | 1.635 | 2.698 | 2.79x | 0.70 | 0.145 |
-| 8 | 1.399 | 1.337 | 0.177 | 0.854 | 1.438 | 5.24x | 0.65 | 0.075 |
-| 16 | 0.792 | 0.788 | 0.094 | 0.552 | 0.900 | 9.25x | 0.58 | 0.049 |
+| 1 | 4.559 | 4.623 | 0.265 | 4.261 | 5.158 | 0.91x | 0.91 | — |
+| 2 | 2.956 | 3.009 | 0.141 | 2.840 | 3.234 | 1.41x | 0.70 | 0.422 |
+| 4 | 1.604 | 1.605 | 0.042 | 1.546 | 1.670 | 2.59x | 0.65 | 0.181 |
+| 8 | 0.840 | 0.864 | 0.050 | 0.826 | 0.980 | 4.95x | 0.62 | 0.088 |
+| 16 | 0.541 | 0.577 | 0.100 | 0.523 | 0.855 | 7.69x | 0.48 | 0.072 |
 
 ## Discusión
 
