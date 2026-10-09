@@ -39,7 +39,7 @@ Diseñar e implementar un sistema distribuido y concurrente de recomendación de
 |---|---|
 | Generación y limpieza del dataset | Python (pandas, NumPy) — Jupyter/Colab |
 | Modelado de sincronización | Promela (verificado con Spin) |
-| Implementación secuencial y concurrente | Go — goroutines, `sync.Mutex`, `sync.WaitGroup` |
+| Implementación secuencial y concurrente | Go (solo librería estándar) — goroutines, canales, `sync.WaitGroup` |
 | Control de versiones | Git / GitHub — flujo GitFlow |
 
 ## Estructura del repositorio
@@ -53,17 +53,19 @@ Diseñar e implementar un sistema distribuido y concurrente de recomendación de
 ├── dataset/
 │   ├── notebook_generacion.ipynb  # Generación y depuración del dataset sintético
 │   └── data/                      # Datasets generados (microcursos, DAG, estudiantes, interacciones)
-├── src/
-│   ├── sequential/                # Implementación secuencial del algoritmo de recomendación (Go)
-│   └── concurrent/                # Implementación concurrente (Go) — worker pools / pipelines
-├── promela/
-│   └── modelo.pml                 # Modelado y verificación formal en Promela/Spin
+├── psudocode/
+│   └── algorithm.md               # Pseudocódigo del algoritmo (fuente de verdad)
+├── src/                           # Implementación en Go (módulo `recommendation`)
+│   ├── main.go                    # CLI: -sequential / -concurrent / -workers / -data / -out
+│   ├── shared/                    # Carga y validación de CSV, Dataset inmutable, algoritmo y salida CSV
+│   ├── sequential/                # Modo secuencial: solo el bucle sobre los estudiantes
+│   ├── concurrent/                # Modo concurrente: productor / workers / recolector (+ variante pre-asignada)
+│   └── benchmark/                 # Comando que genera benchmarks/resultados_speedup.md
+├── promela/                       # Modelado y verificación formal en Promela/Spin
 ├── benchmarks/
 │   └── resultados_speedup.md      # Tabla y estadísticas de Speedup (T-Secuencial / T-Concurrente)
 └── README.md
 ```
-
-> La estructura anterior es la propuesta inicial del equipo; se actualizará a medida que avance la implementación en PC2 y TP.
 
 ## Dataset
 
@@ -116,12 +118,45 @@ Tipos sugeridos: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
 # estudiantes.csv e interacciones.csv en dataset/data/
 ```
 
-### Implementación en Go (se agregará en PC2)
+### Implementación en Go
+
+Requiere Go 1.27.1 o superior. Todos los comandos se ejecutan desde `src/`:
 
 ```bash
-cd src/sequential && go run main.go
-cd src/concurrent && go run main.go
+cd src
+
+# secuencial / concurrente / ambos (verifica que los resultados sean idénticos e imprime el speedup)
+go run . -sequential
+go run . -concurrent -workers 8
+go run . -sequential -concurrent
+
+# guardar las recomendaciones (student_id,rec1,rec2,rec3,score1,score2,score3)
+go run . -concurrent -out recomendaciones.csv
 ```
+
+| Flag | Significado |
+|---|---|
+| `-sequential` | corre el modo secuencial |
+| `-concurrent` | corre el modo concurrente |
+| `-workers N` | número de workers (por defecto `runtime.NumCPU()`) |
+| `-data ruta` | carpeta de los CSV (por defecto `../dataset/data`) |
+| `-out archivo` | CSV de salida, ordenado por estudiante |
+
+Sin ningún modo, el programa muestra el uso y termina con código 2. El tiempo reportado mide solo la recomendación, sin la carga de los CSV.
+
+### Pruebas y benchmark
+
+```bash
+cd src
+go build ./... && go vet ./...
+go test ./...
+CGO_ENABLED=1 go test -race ./...   # el detector de carreras necesita gcc (p. ej. WinLibs/MinGW-w64 en Windows)
+
+# benchmark: 1 calentamiento + 10 repeticiones, escribe ../benchmarks/resultados_speedup.md
+go run ./benchmark -hardware "CPU / RAM / SO"
+```
+
+El modo secuencial y el concurrente llaman a la misma función `shared.Recommend` con desempates fijos (mayor valor primero y, en empate, menor índice), por lo que la salida es idéntica byte a byte con cualquier número de workers. La aritmética usa `float64` (el pseudocódigo usa enteros 0-100 solo por compatibilidad con Promela).
 
 ## Estado de las entregas
 

@@ -1,0 +1,21 @@
+# Binarios y artefactos de Go
+*.exe
+*.test
+*.out
+*.prof
+src/tmp_*
+
+# Salidas generadas por el programa
+recomendaciones.csv
+salida*.csv
+tmp_*.csv
+
+# Python / Jupyter
+__pycache__/
+.ipynb_checkpoints/
+
+# Editores y sistema
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
