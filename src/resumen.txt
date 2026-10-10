@@ -1,0 +1,1750 @@
+package shared
+
+import "fmt"
+
+// BoolToBitmask convierte los cursos de un núcleo (máx. CoursesPerCore) en un bitmask.
+func BoolToBitmask(arr []bool) (uint64, error) {
+	if len(arr) > CoursesPerCore {
+		return 0, fmt.Errorf("bitmask: %d cursos exceden el máximo de %d por núcleo", len(arr), CoursesPerCore)
+	}
+
+	var mask uint64
+	for i, done := range arr {
+		if done {
+			mask |= 1 << i
+		}
+	}
+
+	return mask, nil
+}
+package shared
+
+// Decisión de aritmética: todo el proyecto usa float64. Los CSV traen
+// decimales de doble precisión y el costo de memoria es irrelevante con
+// 25,000 estudiantes. Los modos secuencial y concurrente llaman a las mismas
+// funciones y suman en el mismo orden, por lo que dan resultados idénticos.
+const (
+	NumNeighbors       = 5
+	NumRecommendations = 3
+
+	WeightAffinity      float64 = 0.25
+	WeightSkill         float64 = 0.25
+	WeightCollaboration float64 = 0.50
+)
+
+// Estructura del dataset: 3 núcleos de 60 cursos cada uno, de modo que un
+// uint64 por núcleo alcanza como bitmask de cursos aprobados.
+const (
+	NumCores       = 3
+	CoursesPerCore = 60
+	MaxPrereqs     = 2
+	NoPrereq       = -1
+)
+
+// Índice de cada núcleo (coincide con el orden del pseudocódigo).
+const (
+	CoreMath    = 0
+	CoreReading = 1
+	CoreScience = 2
+)
+
+// CoreNames mapea el nombre del CSV al índice del núcleo.
+var CoreNames = map[string]int{
+	"Matematica": CoreMath,
+	"Lectura":    CoreReading,
+	"Ciencias":   CoreScience,
+}
+package shared
+
+// Core agrupa la información de un estudiante en un núcleo.
+// Affinity y Skill vienen del CSV en [0,1]; Completed es el bitmask de
+// cursos aprobados (bit i = i-ésimo curso del núcleo, 0..59).
+type Core struct {
+	Affinity  float64
+	Skill     float64
+	Completed uint64
+}
+package shared
+
+import "math/bits"
+
+// Dataset es la estructura en memoria que usa el algoritmo. Tras LoadDataset
+// nadie la modifica, así que se puede leer desde varias goroutines sin locks.
+// Todo se indexa con índices densos (orden de aparición en los CSV).
+type Dataset struct {
+	Students     []Student // índice = ID denso del estudiante
+	StudentNames []string  // ID denso -> "STU_000000"
+	CourseNames  []string  // ID denso -> "MAT_0000"
+
+	CourseCore []int             // núcleo (0..2) de cada curso
+	CourseBit  []uint            // posición del curso dentro de su núcleo (0..59)
+	Prereqs    [][MaxPrereqs]int // prerrequisitos (índice de curso) o NoPrereq
+
+	NumEdges        int // aristas de prerrequisito
+	NumInteractions int // filas leídas de interacciones.csv
+}
+
+func (d *Dataset) NumStudents() int { return len(d.Students) }
+func (d *Dataset) NumCourses() int  { return len(d.CourseNames) }
+
+// Approved indica si el estudiante aprobó el curso.
+func (d *Dataset) Approved(s ID, course int) bool {
+	return d.Students[s].Cores[d.CourseCore[course]].Completed>>d.CourseBit[course]&1 == 1
+}
+
+// TotalApproved cuenta los pares (estudiante, curso) aprobados.
+func (d *Dataset) TotalApproved() int {
+	total := 0
+	for i := range d.Students {
+		for c := range d.Students[i].Cores {
+			total += bits.OnesCount64(d.Students[i].Cores[c].Completed)
+		}
+	}
+	return total
+}
+package shared
+
+type ID int
+package shared
+
+import (
+	"fmt"
+	"math/bits"
+)
+
+func Jaccard(a, b []uint64) (float64, error) {
+	if len(a) != len(b) {
+		return 0, fmt.Errorf("jaccard: mask with different sizes: %d vs %d", len(a), len(b))
+	}
+
+	var common, total int
+	for i := range a {
+		common += bits.OnesCount64(a[i] & b[i])
+		total += bits.OnesCount64(a[i] | b[i])
+	}
+
+	if total == 0 {
+		return 0, nil
+	}
+
+	return float64(common) / float64(total), nil
+}
+
+// JaccardStudents calcula lo mismo que Jaccard sobre los 3 bitmasks de cada
+// estudiante, pero sin crear slices (se usa en el camino caliente).
+func JaccardStudents(a, b *Student) float64 {
+	var common, total int
+	for c := 0; c < NumCores; c++ {
+		x, y := a.Cores[c].Completed, b.Cores[c].Completed
+		common += bits.OnesCount64(x & y)
+		total += bits.OnesCount64(x | y)
+	}
+
+	if total == 0 {
+		return 0
+	}
+
+	return float64(common) / float64(total)
+}
+package shared
+
+import (
+	"encoding/csv"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strconv"
+)
+
+// readCSV lee un CSV fila por fila (sin ReadAll) y entrega solo las columnas
+// pedidas, en el orden de cols. El slice que recibe fn se reutiliza.
+func readCSV(path string, cols []string, fn func(row []string) error) error {
+	name := filepath.Base(path)
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	r := csv.NewReader(f)
+	r.ReuseRecord = true
+
+	header, err := r.Read()
+	if err != nil {
+		return fmt.Errorf("%s: cabecera: %w", name, err)
+	}
+	pos := make([]int, len(cols))
+	for i, col := range cols {
+		pos[i] = -1
+		for j, h := range header {
+			if h == col {
+				pos[i] = j
+			}
+		}
+		if pos[i] < 0 {
+			return fmt.Errorf("%s: falta la columna %q", name, col)
+		}
+	}
+
+	row := make([]string, len(cols))
+	for line := 2; ; line++ {
+		rec, err := r.Read()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		for i, p := range pos {
+			row[i] = rec[p]
+		}
+		if err := fn(row); err != nil {
+			return fmt.Errorf("%s línea %d: %w", name, line, err)
+		}
+	}
+}
+
+// LoadDataset carga y valida los 4 CSV de la carpeta dir.
+func LoadDataset(dir string) (*Dataset, error) {
+	d := &Dataset{}
+	courseIdx, err := d.loadCourses(filepath.Join(dir, "cursos.csv"))
+	if err != nil {
+		return nil, err
+	}
+	if err := d.loadPrereqs(filepath.Join(dir, "dag_prerequisitos.csv"), courseIdx); err != nil {
+		return nil, err
+	}
+	studentIdx, err := d.loadStudents(filepath.Join(dir, "estudiantes.csv"))
+	if err != nil {
+		return nil, err
+	}
+	if err := d.loadInteractions(filepath.Join(dir, "interacciones.csv"), studentIdx, courseIdx); err != nil {
+		return nil, err
+	}
+	return d, nil
+}
+
+func (d *Dataset) loadCourses(path string) (map[string]int, error) {
+	idx := make(map[string]int)
+	var perCore [NumCores]uint
+
+	err := readCSV(path, []string{"course_id", "nucleo"}, func(row []string) error {
+		core, ok := CoreNames[row[1]]
+		if !ok {
+			return fmt.Errorf("núcleo desconocido %q", row[1])
+		}
+		if _, dup := idx[row[0]]; dup {
+			return fmt.Errorf("curso duplicado %q", row[0])
+		}
+		idx[row[0]] = len(d.CourseNames)
+		d.CourseNames = append(d.CourseNames, row[0])
+		d.CourseCore = append(d.CourseCore, core)
+		d.CourseBit = append(d.CourseBit, perCore[core])
+		perCore[core]++
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	for c, n := range perCore {
+		if n != CoursesPerCore {
+			return nil, fmt.Errorf("cursos.csv: el núcleo %d tiene %d cursos, se esperaban %d", c, n, CoursesPerCore)
+		}
+	}
+	return idx, nil
+}
+
+func (d *Dataset) loadPrereqs(path string, courseIdx map[string]int) error {
+	d.Prereqs = make([][MaxPrereqs]int, d.NumCourses())
+	for i := range d.Prereqs {
+		for j := range d.Prereqs[i] {
+			d.Prereqs[i][j] = NoPrereq
+		}
+	}
+
+	err := readCSV(path, []string{"prerequisito_id", "course_id"}, func(row []string) error {
+		pre, ok := courseIdx[row[0]]
+		if !ok {
+			return fmt.Errorf("prerrequisito inexistente %q", row[0])
+		}
+		c, ok := courseIdx[row[1]]
+		if !ok {
+			return fmt.Errorf("curso inexistente %q", row[1])
+		}
+		if pre == c {
+			return fmt.Errorf("el curso %q es prerrequisito de sí mismo", row[1])
+		}
+		for j, p := range d.Prereqs[c] {
+			if p == pre {
+				return fmt.Errorf("arista duplicada %q -> %q", row[0], row[1])
+			}
+			if p == NoPrereq {
+				d.Prereqs[c][j] = pre
+				d.NumEdges++
+				return nil
+			}
+		}
+		return fmt.Errorf("el curso %q tiene más de %d prerrequisitos", row[1], MaxPrereqs)
+	})
+	if err != nil {
+		return err
+	}
+	return d.checkAcyclic()
+}
+
+// checkAcyclic verifica que el DAG de prerrequisitos no tenga ciclos (Kahn).
+func (d *Dataset) checkAcyclic() error {
+	n := d.NumCourses()
+	children := make([][]int, n)
+	pending := make([]int, n) // prerrequisitos aún sin procesar
+	for c, ps := range d.Prereqs {
+		for _, p := range ps {
+			if p != NoPrereq {
+				children[p] = append(children[p], c)
+				pending[c]++
+			}
+		}
+	}
+	queue := make([]int, 0, n)
+	for c := range pending {
+		if pending[c] == 0 {
+			queue = append(queue, c)
+		}
+	}
+	done := 0
+	for len(queue) > 0 {
+		c := queue[0]
+		queue = queue[1:]
+		done++
+		for _, ch := range children[c] {
+			if pending[ch]--; pending[ch] == 0 {
+				queue = append(queue, ch)
+			}
+		}
+	}
+	if done != n {
+		return errors.New("dag_prerequisitos.csv: el grafo de prerrequisitos tiene un ciclo")
+	}
+	return nil
+}
+
+func (d *Dataset) loadStudents(path string) (map[string]ID, error) {
+	idx := make(map[string]ID)
+	cols := []string{"student_id",
+		"afinidad_matematica", "afinidad_lectura", "afinidad_ciencias",
+		"habilidad_matematica", "habilidad_lectura", "habilidad_ciencias"}
+
+	err := readCSV(path, cols, func(row []string) error {
+		if _, dup := idx[row[0]]; dup {
+			return fmt.Errorf("estudiante duplicado %q", row[0])
+		}
+		s := Student{ID: ID(len(d.Students))}
+		for c := 0; c < NumCores; c++ {
+			aff, err := parseUnit(row[1+c])
+			if err != nil {
+				return err
+			}
+			skill, err := parseUnit(row[1+NumCores+c])
+			if err != nil {
+				return err
+			}
+			s.Cores[c].Affinity, s.Cores[c].Skill = aff, skill
+		}
+		idx[row[0]] = s.ID
+		d.Students = append(d.Students, s)
+		d.StudentNames = append(d.StudentNames, row[0])
+		return nil
+	})
+	return idx, err
+}
+
+// parseUnit lee un float que debe estar en [0,1].
+func parseUnit(s string) (float64, error) {
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, err
+	}
+	if v < 0 || v > 1 {
+		return 0, fmt.Errorf("valor %v fuera de [0,1]", v)
+	}
+	return v, nil
+}
+
+// loadInteractions marca como aprobado todo (estudiante, curso) con al menos
+// una fila aprobado=1, sin importar el intento.
+func (d *Dataset) loadInteractions(path string, studentIdx map[string]ID, courseIdx map[string]int) error {
+	return readCSV(path, []string{"student_id", "course_id", "aprobado"}, func(row []string) error {
+		s, ok := studentIdx[row[0]]
+		if !ok {
+			return fmt.Errorf("estudiante inexistente %q", row[0])
+		}
+		c, ok := courseIdx[row[1]]
+		if !ok {
+			return fmt.Errorf("curso inexistente %q", row[1])
+		}
+		d.NumInteractions++
+		switch row[2] {
+		case "1":
+			core := &d.Students[s].Cores[d.CourseCore[c]]
+			core.Completed |= 1 << d.CourseBit[c]
+		case "0":
+		default:
+			return fmt.Errorf("valor de aprobado inválido %q", row[2])
+		}
+		return nil
+	})
+}
+package shared
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// fixture es un dataset mínimo válido (180 cursos, 3 estudiantes) cuyas
+// partes se pueden alterar antes de escribirlo a disco.
+type fixture struct {
+	courses      []string // "id,nucleo"
+	edges        []string // "pre,curso"
+	students     []string
+	interactions []string // "student,course,aprobado"
+}
+
+func newFixture() *fixture {
+	f := &fixture{}
+	prefix := []string{"MAT", "LEC", "CIE"}
+	names := []string{"Matematica", "Lectura", "Ciencias"}
+	for c := 0; c < NumCores; c++ {
+		for i := 0; i < CoursesPerCore; i++ {
+			f.courses = append(f.courses, fmt.Sprintf("%s_%04d,%s", prefix[c], c*CoursesPerCore+i, names[c]))
+		}
+	}
+	f.edges = []string{"MAT_0000,MAT_0001", "MAT_0001,MAT_0002", "MAT_0000,MAT_0002"}
+	f.students = []string{
+		"STU_000000,0.1,0.2,0.3,0.4,0.5,0.6",
+		"STU_000001,1,0,0.5,0.5,0.5,0.5",
+		"STU_000002,0.3,0.3,0.3,0.3,0.3,0.3",
+	}
+	f.interactions = []string{
+		"STU_000000,MAT_0000,0", // intento 1 reprobado
+		"STU_000000,MAT_0000,1", // intento 2 aprobado
+		"STU_000000,LEC_0060,1", // primer curso de Lectura -> bit 0
+		"STU_000000,CIE_0179,1", // último de Ciencias -> bit 59
+		"STU_000001,MAT_0001,0",
+	}
+	return f
+}
+
+func (f *fixture) write(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	put := func(name, header string, lines []string) {
+		body := header + "\n" + strings.Join(lines, "\n") + "\n"
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("cursos.csv", "course_id,nucleo", f.courses)
+	put("dag_prerequisitos.csv", "prerequisito_id,course_id", f.edges)
+	put("estudiantes.csv", "student_id,afinidad_matematica,afinidad_lectura,afinidad_ciencias,habilidad_matematica,habilidad_lectura,habilidad_ciencias", f.students)
+	put("interacciones.csv", "student_id,course_id,aprobado", f.interactions)
+	return dir
+}
+
+func TestLoadDatasetOK(t *testing.T) {
+	d, err := LoadDataset(newFixture().write(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.NumStudents() != 3 || d.NumCourses() != 180 || d.NumEdges != 3 || d.NumInteractions != 5 {
+		t.Fatalf("conteos inesperados: %d est, %d cursos, %d aristas, %d inter",
+			d.NumStudents(), d.NumCourses(), d.NumEdges, d.NumInteractions)
+	}
+	if d.Prereqs[2] != [MaxPrereqs]int{1, 0} && d.Prereqs[2] != [MaxPrereqs]int{0, 1} {
+		t.Errorf("prerrequisitos de MAT_0002 = %v", d.Prereqs[2])
+	}
+	if d.Prereqs[0] != [MaxPrereqs]int{NoPrereq, NoPrereq} {
+		t.Errorf("MAT_0000 no debería tener prerrequisitos: %v", d.Prereqs[0])
+	}
+	s := d.Students[0]
+	if s.Cores[CoreMath].Completed != 1 {
+		t.Errorf("Math completed = %b, quiero 1 (aprobó en el intento 2)", s.Cores[CoreMath].Completed)
+	}
+	if s.Cores[CoreReading].Completed != 1 {
+		t.Errorf("Reading completed = %b, quiero 1 (índice local 0)", s.Cores[CoreReading].Completed)
+	}
+	if s.Cores[CoreScience].Completed != 1<<59 {
+		t.Errorf("Science completed = %b, quiero bit 59", s.Cores[CoreScience].Completed)
+	}
+	if s.Cores[CoreScience].Affinity != 0.3 || s.Cores[CoreScience].Skill != 0.6 {
+		t.Errorf("afinidad/habilidad ciencias = %v/%v", s.Cores[CoreScience].Affinity, s.Cores[CoreScience].Skill)
+	}
+	if !d.Approved(0, 0) || d.Approved(1, 1) {
+		t.Error("Approved incorrecto")
+	}
+	if d.TotalApproved() != 3 {
+		t.Errorf("TotalApproved = %d, quiero 3", d.TotalApproved())
+	}
+	if d.StudentNames[2] != "STU_000002" || d.Students[2].ID != 2 {
+		t.Error("índice denso incorrecto")
+	}
+}
+
+func TestLoadDatasetErrors(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(f *fixture)
+		want   string
+	}{
+		{"más de 2 prerrequisitos", func(f *fixture) { f.edges = append(f.edges, "MAT_0003,MAT_0002") }, "más de 2 prerrequisitos"},
+		{"ciclo", func(f *fixture) { f.edges = append(f.edges, "MAT_0002,MAT_0000") }, "ciclo"},
+		{"auto-prerrequisito", func(f *fixture) { f.edges = append(f.edges, "MAT_0005,MAT_0005") }, "sí mismo"},
+		{"arista duplicada", func(f *fixture) { f.edges = append(f.edges, "MAT_0000,MAT_0001") }, "duplicada"},
+		{"prerrequisito inexistente", func(f *fixture) { f.edges = append(f.edges, "XXX_0001,MAT_0004") }, "inexistente"},
+		{"núcleo con 59 cursos", func(f *fixture) { f.courses = f.courses[:len(f.courses)-1] }, "se esperaban 60"},
+		{"núcleo desconocido", func(f *fixture) { f.courses[0] = "MAT_0000,Historia" }, "núcleo desconocido"},
+		{"curso duplicado", func(f *fixture) { f.courses[1] = f.courses[0] }, "duplicado"},
+		{"estudiante duplicado", func(f *fixture) { f.students[1] = f.students[0] }, "duplicado"},
+		{"afinidad fuera de rango", func(f *fixture) { f.students[0] = "STU_000000,1.5,0,0,0,0,0" }, "fuera de [0,1]"},
+		{"interacción con estudiante inexistente", func(f *fixture) { f.interactions = append(f.interactions, "STU_999999,MAT_0000,1") }, "estudiante inexistente"},
+		{"interacción con curso inexistente", func(f *fixture) { f.interactions = append(f.interactions, "STU_000000,MAT_9999,1") }, "curso inexistente"},
+		{"aprobado inválido", func(f *fixture) { f.interactions = append(f.interactions, "STU_000000,MAT_0000,2") }, "aprobado inválido"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture()
+			tc.mutate(f)
+			_, err := LoadDataset(f.write(t))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, quiero que contenga %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestLoadDatasetMissingFile(t *testing.T) {
+	if _, err := LoadDataset(t.TempDir()); err == nil {
+		t.Fatal("quería error con carpeta vacía")
+	}
+}
+
+func TestBoolToBitmask(t *testing.T) {
+	m, err := BoolToBitmask([]bool{true, false, true})
+	if err != nil || m != 0b101 {
+		t.Fatalf("mask = %b, err = %v", m, err)
+	}
+	if _, err := BoolToBitmask(make([]bool, CoursesPerCore+1)); err == nil {
+		t.Fatal("quería error con más de 60 cursos")
+	}
+	if _, err := BoolToBitmask(make([]bool, CoursesPerCore)); err != nil {
+		t.Fatalf("60 cursos deberían ser válidos: %v", err)
+	}
+}
+
+func TestJaccard(t *testing.T) {
+	got, err := Jaccard([]uint64{0b0111, 0}, []uint64{0b0011, 0b1})
+	if err != nil || got != 2.0/4.0 {
+		t.Fatalf("jaccard = %v, err = %v, quiero 0.5", got, err)
+	}
+	if got, _ := Jaccard([]uint64{0}, []uint64{0}); got != 0 {
+		t.Fatalf("vacío debe dar 0, dio %v", got)
+	}
+	if _, err := Jaccard([]uint64{0}, []uint64{0, 0}); err == nil {
+		t.Fatal("quería error por tamaños distintos")
+	}
+}
+package shared
+
+// Neighbor es un estudiante similar al objetivo.
+type Neighbor struct {
+	ID         ID
+	Similarity float64
+}
+
+// TopNeighbors devuelve los k estudiantes más similares a target (sin incluirlo),
+// ordenados de mayor a menor similitud.
+//
+// Regla de desempate (única, igual en ambos modos): a igual similitud va primero
+// el de menor índice. En lugar de ordenar los N-1 candidatos (O(N log N)) se
+// mantiene una lista ordenada de tamaño k con inserción (O(N·k)). Como se recorre
+// en orden creciente de índice, un candidato empatado nunca desplaza a uno
+// anterior, así que el resultado es idéntico al de ordenar todo con desempate.
+func (d *Dataset) TopNeighbors(target ID, k int) []Neighbor {
+	top := make([]Neighbor, 0, k)
+	if k <= 0 {
+		return top
+	}
+	me := &d.Students[target]
+
+	for i := range d.Students {
+		if ID(i) == target {
+			continue
+		}
+		sim := JaccardStudents(me, &d.Students[i])
+		if len(top) == k && sim <= top[k-1].Similarity {
+			continue
+		}
+
+		// posición: después de todos los que tienen similitud >= sim
+		pos := len(top)
+		for pos > 0 && top[pos-1].Similarity < sim {
+			pos--
+		}
+		if len(top) < k {
+			top = append(top, Neighbor{})
+		}
+		copy(top[pos+1:], top[pos:len(top)-1])
+		top[pos] = Neighbor{ID: ID(i), Similarity: sim}
+	}
+	return top
+}
+package shared
+
+import (
+	"bufio"
+	"fmt"
+	"io"
+	"os"
+	"sort"
+)
+
+// Result es la recomendación de un estudiante.
+type Result struct {
+	Student ID
+	Recs    []Recommendation
+}
+
+// SortResults ordena por estudiante. Hay que llamarla antes de comparar o
+// escribir: el modo concurrente recibe los resultados en orden no determinista.
+func SortResults(rs []Result) {
+	sort.Slice(rs, func(i, j int) bool { return rs[i].Student < rs[j].Student })
+}
+
+// EqualResults compara dos listas ya ordenadas, incluyendo los puntajes exactos.
+func EqualResults(a, b []Result) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Student != b[i].Student || len(a[i].Recs) != len(b[i].Recs) {
+			return false
+		}
+		for j := range a[i].Recs {
+			if a[i].Recs[j] != b[i].Recs[j] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// WriteCSV escribe student_id,rec1,rec2,rec3,score1,score2,score3 (puntajes con
+// 6 decimales). Si hay menos de 3 recomendaciones, las columnas sobrantes quedan vacías.
+func (d *Dataset) WriteCSV(w io.Writer, rs []Result) error {
+	bw := bufio.NewWriter(w)
+	fmt.Fprintln(bw, "student_id,rec1,rec2,rec3,score1,score2,score3")
+	for _, r := range rs {
+		fmt.Fprint(bw, d.StudentNames[r.Student])
+		for i := 0; i < NumRecommendations; i++ {
+			if i < len(r.Recs) {
+				fmt.Fprintf(bw, ",%s", d.CourseNames[r.Recs[i].Course])
+			} else {
+				bw.WriteByte(',')
+			}
+		}
+		for i := 0; i < NumRecommendations; i++ {
+			if i < len(r.Recs) {
+				fmt.Fprintf(bw, ",%.6f", r.Recs[i].Score)
+			} else {
+				bw.WriteByte(',')
+			}
+		}
+		bw.WriteByte('\n')
+	}
+	return bw.Flush()
+}
+
+// WriteCSVFile guarda los resultados en un archivo.
+func (d *Dataset) WriteCSVFile(path string, rs []Result) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	if err := d.WriteCSV(f, rs); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+package shared
+
+// Recommendation es un curso recomendado con su puntaje.
+type Recommendation struct {
+	Course int // índice denso del curso
+	Score  float64
+}
+
+// MeetsPrereqs indica si el estudiante ya aprobó todos los prerrequisitos del curso.
+// Funciona también si un prerrequisito es de otro núcleo.
+func (d *Dataset) MeetsPrereqs(s ID, course int) bool {
+	for _, p := range d.Prereqs[course] {
+		if p != NoPrereq && !d.Approved(s, p) {
+			return false
+		}
+	}
+	return true
+}
+
+// Candidates devuelve, en orden creciente de índice, los cursos que el
+// estudiante no ha aprobado y cuyos prerrequisitos ya cumple.
+func (d *Dataset) Candidates(s ID) []int {
+	var out []int
+	for c := range d.CourseNames {
+		if !d.Approved(s, c) && d.MeetsPrereqs(s, c) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// Score calcula 0.25*afinidad + 0.25*habilidad + 0.50*(vecinos que aprobaron / K).
+// El orden de las operaciones es fijo (afinidad + habilidad + colaborativo) para
+// que ambos modos den bits idénticos. El divisor es siempre NumNeighbors, como
+// en el pseudocódigo, aunque haya menos vecinos.
+func (d *Dataset) Score(s ID, course int, neighbors []Neighbor) float64 {
+	core := &d.Students[s].Cores[d.CourseCore[course]]
+
+	approved := 0
+	for _, n := range neighbors {
+		if d.Approved(n.ID, course) {
+			approved++
+		}
+	}
+
+	affinity := core.Affinity * WeightAffinity
+	skill := core.Skill * WeightSkill
+	collab := float64(approved) / float64(NumNeighbors) * WeightCollaboration
+	return affinity + skill + collab
+}
+
+// Recommend devuelve hasta NumRecommendations cursos para el estudiante, de
+// mayor a menor puntaje. Desempate: menor índice de curso primero. Usa la
+// misma inserción top-k que TopNeighbors, en lugar de ordenar todos los candidatos.
+// Es de solo lectura sobre el Dataset, por lo que es seguro llamarla en paralelo.
+func (d *Dataset) Recommend(s ID) []Recommendation {
+	neighbors := d.TopNeighbors(s, NumNeighbors)
+	top := make([]Recommendation, 0, NumRecommendations)
+
+	for _, c := range d.Candidates(s) {
+		score := d.Score(s, c, neighbors)
+		if len(top) == NumRecommendations && score <= top[NumRecommendations-1].Score {
+			continue
+		}
+
+		pos := len(top)
+		for pos > 0 && top[pos-1].Score < score {
+			pos--
+		}
+		if len(top) < NumRecommendations {
+			top = append(top, Recommendation{})
+		}
+		copy(top[pos+1:], top[pos:len(top)-1])
+		top[pos] = Recommendation{Course: c, Score: score}
+	}
+	return top
+}
+package shared
+
+import (
+	"bytes"
+	"fmt"
+	"math"
+	"math/rand"
+	"os"
+	"reflect"
+	"sort"
+	"testing"
+)
+
+// toyDataset arma a mano un Dataset de n estudiantes con los 180 cursos
+// (curso i -> núcleo i/60, bit i%60) y sin prerrequisitos.
+func toyDataset(n int) *Dataset {
+	d := &Dataset{}
+	for c := 0; c < NumCores*CoursesPerCore; c++ {
+		d.CourseNames = append(d.CourseNames, fmt.Sprintf("C_%03d", c))
+		d.CourseCore = append(d.CourseCore, c/CoursesPerCore)
+		d.CourseBit = append(d.CourseBit, uint(c%CoursesPerCore))
+		d.Prereqs = append(d.Prereqs, [MaxPrereqs]int{NoPrereq, NoPrereq})
+	}
+	for i := 0; i < n; i++ {
+		d.Students = append(d.Students, Student{ID: ID(i)})
+		d.StudentNames = append(d.StudentNames, fmt.Sprintf("S_%03d", i))
+	}
+	return d
+}
+
+func (d *Dataset) approve(s ID, courses ...int) {
+	for _, c := range courses {
+		d.Students[s].Cores[d.CourseCore[c]].Completed |= 1 << d.CourseBit[c]
+	}
+}
+
+func TestJaccardStudentsMatchesJaccard(t *testing.T) {
+	d := toyDataset(2)
+	d.approve(0, 0, 1, 70, 130)
+	d.approve(1, 1, 2, 70, 179)
+	a, b := &d.Students[0], &d.Students[1]
+	want, _ := Jaccard(
+		[]uint64{a.Cores[0].Completed, a.Cores[1].Completed, a.Cores[2].Completed},
+		[]uint64{b.Cores[0].Completed, b.Cores[1].Completed, b.Cores[2].Completed})
+	if got := JaccardStudents(a, b); got != want || got != 2.0/6.0 {
+		t.Fatalf("JaccardStudents = %v, Jaccard = %v, quiero 1/3", got, want)
+	}
+}
+
+func TestTopNeighborsTiesAndOrder(t *testing.T) {
+	d := toyDataset(6)
+	d.approve(0, 0, 1) // objetivo
+	d.approve(1, 0)    // 0.5
+	d.approve(2, 0, 1) // 1.0
+	d.approve(3, 0)    // 0.5 (empata con 1, pero índice mayor)
+	d.approve(4, 100)  // 0
+	// estudiante 5 sin cursos: 0
+
+	got := d.TopNeighbors(0, 3)
+	want := []Neighbor{{2, 1}, {1, 0.5}, {3, 0.5}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("vecinos = %v, quiero %v", got, want)
+	}
+}
+
+func TestTopNeighborsAllZeroPicksLowestIndexes(t *testing.T) {
+	d := toyDataset(10) // nadie aprobó nada: Jaccard 0 con todos
+	got := d.TopNeighbors(0, 3)
+	want := []Neighbor{{1, 0}, {2, 0}, {3, 0}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("vecinos = %v, quiero %v", got, want)
+	}
+	// el objetivo nunca es su propio vecino
+	if got := d.TopNeighbors(2, 3); got[0].ID != 0 || got[1].ID != 1 || got[2].ID != 3 {
+		t.Fatalf("vecinos de 2 = %v", got)
+	}
+}
+
+func TestTopNeighborsKLargerThanPopulation(t *testing.T) {
+	d := toyDataset(3)
+	if got := d.TopNeighbors(0, NumNeighbors); len(got) != 2 {
+		t.Fatalf("con 3 estudiantes y K=5 quiero 2 vecinos, hubo %d", len(got))
+	}
+	if got := toyDataset(1).TopNeighbors(0, NumNeighbors); len(got) != 0 {
+		t.Fatalf("un solo estudiante no tiene vecinos, hubo %d", len(got))
+	}
+}
+
+// randomDataset llena estudiantes con cursos aprobados aleatorios (semilla fija)
+// y prerrequisitos aleatorios que respetan un DAG (prerrequisito < curso).
+func randomDataset(seed int64, students int) *Dataset {
+	rng := rand.New(rand.NewSource(seed))
+	d := toyDataset(students)
+	for c := 1; c < len(d.Prereqs); c++ {
+		for j := 0; j < MaxPrereqs; j++ {
+			if rng.Intn(3) == 0 && c%CoursesPerCore != 0 {
+				d.Prereqs[c][j] = c - 1 - rng.Intn(c%CoursesPerCore)
+			}
+		}
+		if d.Prereqs[c][0] == d.Prereqs[c][1] {
+			d.Prereqs[c][1] = NoPrereq
+		}
+	}
+	for s := range d.Students {
+		for core := 0; core < NumCores; core++ {
+			st := &d.Students[s]
+			st.Cores[core].Affinity = float64(rng.Intn(4)) / 4 // pocos valores -> muchos empates
+			st.Cores[core].Skill = float64(rng.Intn(4)) / 4
+		}
+		for k := rng.Intn(40); k > 0; k-- {
+			d.approve(ID(s), rng.Intn(len(d.CourseNames)))
+		}
+	}
+	return d
+}
+
+// referenceRecommend sigue el pseudocódigo al pie de la letra: ordena TODAS
+// las similitudes y TODOS los candidatos (orden estable, desempate por índice).
+func referenceRecommend(d *Dataset, s ID) []Recommendation {
+	var sims []Neighbor
+	for i := range d.Students {
+		if ID(i) != s {
+			sims = append(sims, Neighbor{ID(i), JaccardStudents(&d.Students[s], &d.Students[i])})
+		}
+	}
+	sort.SliceStable(sims, func(i, j int) bool { return sims[i].Similarity > sims[j].Similarity })
+	if len(sims) > NumNeighbors {
+		sims = sims[:NumNeighbors]
+	}
+
+	var scored []Recommendation
+	for _, c := range d.Candidates(s) {
+		scored = append(scored, Recommendation{c, d.Score(s, c, sims)})
+	}
+	sort.SliceStable(scored, func(i, j int) bool { return scored[i].Score > scored[j].Score })
+	if len(scored) > NumRecommendations {
+		scored = scored[:NumRecommendations]
+	}
+	return scored
+}
+
+func TestRecommendMatchesFullSortReference(t *testing.T) {
+	for seed := int64(1); seed <= 5; seed++ {
+		d := randomDataset(seed, 120)
+		for s := range d.Students {
+			got, want := d.Recommend(ID(s)), referenceRecommend(d, ID(s))
+			if len(got) == 0 && len(want) == 0 {
+				continue
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("seed %d estudiante %d: top-k %v != orden completo %v", seed, s, got, want)
+			}
+		}
+	}
+}
+
+func TestMeetsPrereqs(t *testing.T) {
+	d := toyDataset(1)
+	d.Prereqs[2] = [MaxPrereqs]int{0, 1}
+	d.Prereqs[60] = [MaxPrereqs]int{0, NoPrereq} // prerrequisito de otro núcleo
+	d.Prereqs[3] = [MaxPrereqs]int{NoPrereq, 2}  // la posición 0 vacía no cuenta
+
+	if !d.MeetsPrereqs(0, 0) {
+		t.Error("un curso sin prerrequisitos siempre se cumple")
+	}
+	if d.MeetsPrereqs(0, 2) {
+		t.Error("faltan ambos prerrequisitos")
+	}
+	d.approve(0, 0)
+	if d.MeetsPrereqs(0, 2) {
+		t.Error("falta el segundo prerrequisito")
+	}
+	if !d.MeetsPrereqs(0, 60) {
+		t.Error("el prerrequisito cruzado ya está aprobado")
+	}
+	d.approve(0, 1)
+	if !d.MeetsPrereqs(0, 2) {
+		t.Error("ambos prerrequisitos aprobados")
+	}
+	if d.MeetsPrereqs(0, 3) {
+		t.Error("falta el curso 2")
+	}
+}
+
+func TestCandidates(t *testing.T) {
+	d := toyDataset(1)
+	d.Prereqs[1] = [MaxPrereqs]int{0, NoPrereq}
+	d.approve(0, 5)
+	got := d.Candidates(0)
+	if len(got) != 180-1-1 { // sin el aprobado (5) y sin el curso 1 (falta el 0)
+		t.Fatalf("candidatos = %d, quiero 178", len(got))
+	}
+	for _, c := range got {
+		if c == 5 || c == 1 {
+			t.Fatalf("el curso %d no debería ser candidato", c)
+		}
+	}
+	d.approve(0, 0)
+	if got := d.Candidates(0); got[0] != 1 {
+		t.Fatalf("con el 0 aprobado el 1 debe ser candidato; primer candidato = %d", got[0])
+	}
+}
+
+func TestScore(t *testing.T) {
+	d := toyDataset(4)
+	d.Students[0].Cores[CoreReading] = Core{Affinity: 0.4, Skill: 0.8}
+	course := 70 // Lectura
+	d.approve(1, course)
+	d.approve(2, course)
+	neighbors := []Neighbor{{1, 1}, {2, 1}, {3, 0}}
+
+	// 0.25*0.4 + 0.25*0.8 + 0.5*(2/5) = 0.1 + 0.2 + 0.2
+	if got := d.Score(0, course, neighbors); math.Abs(got-0.5) > 1e-12 {
+		t.Fatalf("puntaje = %v, quiero 0.5", got)
+	}
+	// sin vecinos que aprobaron solo cuentan afinidad y habilidad
+	if got := d.Score(0, 71, neighbors); math.Abs(got-0.3) > 1e-12 {
+		t.Fatalf("puntaje sin vecinos = %v, quiero 0.3", got)
+	}
+}
+
+func TestRecommendEdgeCases(t *testing.T) {
+	// estudiante sin cursos aprobados y sin vecinos con cursos: se recomienda
+	// por afinidad/habilidad; con todo empatado gana el menor índice de curso
+	d := toyDataset(3)
+	got := d.Recommend(0)
+	if len(got) != 3 || got[0].Course != 0 || got[1].Course != 1 || got[2].Course != 2 {
+		t.Fatalf("recomendaciones = %v, quiero cursos 0,1,2", got)
+	}
+
+	// menos de 3 candidatos: se devuelven los que haya
+	d = toyDataset(2)
+	for c := 2; c < 180; c++ {
+		d.approve(0, c)
+	}
+	got = d.Recommend(0)
+	if len(got) != 2 || got[0].Course != 0 || got[1].Course != 1 {
+		t.Fatalf("recomendaciones = %v, quiero solo los cursos 0 y 1", got)
+	}
+
+	// sin candidatos
+	d.approve(0, 0, 1)
+	if got := d.Recommend(0); len(got) != 0 {
+		t.Fatalf("sin candidatos debe devolver vacío, devolvió %v", got)
+	}
+
+	// una sola persona (K >= N-1): no hay vecinos pero igual recomienda
+	if got := toyDataset(1).Recommend(0); len(got) != 3 {
+		t.Fatalf("con 1 estudiante debe recomendar igual, devolvió %v", got)
+	}
+}
+
+func TestRecommendOrdersByScoreThenIndex(t *testing.T) {
+	d := toyDataset(3)
+	d.approve(0, 0) // objetivo, núcleo Matemática
+	d.approve(1, 0, 50)
+	d.approve(2, 0, 50, 51) // vecinos: 50 lo aprobaron ambos, 51 uno solo
+	got := d.Recommend(0)
+	want := []int{50, 51, 1}
+	for i, c := range want {
+		if got[i].Course != c {
+			t.Fatalf("recomendaciones = %v, quiero cursos %v", got, want)
+		}
+	}
+}
+
+func TestWriteCSVAndSort(t *testing.T) {
+	d := toyDataset(3)
+	rs := []Result{
+		{2, []Recommendation{{5, 0.5}}},
+		{0, []Recommendation{{1, 0.75}, {2, 0.25}, {3, 0.125}}},
+		{1, nil},
+	}
+	SortResults(rs)
+	if rs[0].Student != 0 || rs[2].Student != 2 {
+		t.Fatalf("no ordenó: %v", rs)
+	}
+
+	var buf bytes.Buffer
+	if err := d.WriteCSV(&buf, rs); err != nil {
+		t.Fatal(err)
+	}
+	want := "student_id,rec1,rec2,rec3,score1,score2,score3\n" +
+		"S_000,C_001,C_002,C_003,0.750000,0.250000,0.125000\n" +
+		"S_001,,,,,,\n" +
+		"S_002,C_005,,,0.500000,,\n"
+	if buf.String() != want {
+		t.Fatalf("CSV:\n%s\nquiero:\n%s", buf.String(), want)
+	}
+	if !EqualResults(rs, rs) || EqualResults(rs, rs[:2]) {
+		t.Error("EqualResults incorrecto")
+	}
+}
+
+// Prueba de humo sobre el dataset real: invariantes, no valores exactos.
+func TestRealDatasetSmoke(t *testing.T) {
+	const dir = "../../dataset/data"
+	if _, err := os.Stat(dir); err != nil {
+		t.Skip("dataset real no disponible")
+	}
+	d, err := LoadDataset(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for s := 0; s < 100; s++ {
+		recs := d.Recommend(ID(s))
+		if len(recs) != NumRecommendations {
+			t.Fatalf("estudiante %d: %d recomendaciones", s, len(recs))
+		}
+		for i, r := range recs {
+			if d.Approved(ID(s), r.Course) || !d.MeetsPrereqs(ID(s), r.Course) {
+				t.Fatalf("estudiante %d: curso %s inválido", s, d.CourseNames[r.Course])
+			}
+			if i > 0 && recs[i-1].Score < r.Score {
+				t.Fatalf("estudiante %d: no está ordenado", s)
+			}
+		}
+	}
+}
+package shared
+
+// Student guarda un estudiante por núcleo, indexado por CoreMath,
+// CoreReading y CoreScience. ID es el índice denso (orden de aparición en
+// estudiantes.csv).
+type Student struct {
+	ID    ID
+	Cores [NumCores]Core
+}
+// Package sequential es el modo lineal de referencia: un estudiante tras otro.
+package sequential
+
+import "recommendation/shared"
+
+// Run recomienda para todos los estudiantes en orden. La lista ya sale ordenada por estudiante.
+func Run(d *shared.Dataset) []shared.Result {
+	results := make([]shared.Result, d.NumStudents())
+	for s := range results {
+		results[s] = shared.Result{Student: shared.ID(s), Recs: d.Recommend(shared.ID(s))}
+	}
+	return results
+}
+package sequential
+
+import (
+	"os"
+	"testing"
+
+	"recommendation/shared"
+)
+
+func TestRunMatchesRecommend(t *testing.T) {
+	const dir = "../../dataset/data"
+	if _, err := os.Stat(dir); err != nil {
+		t.Skip("dataset real no disponible")
+	}
+	d, err := shared.LoadDataset(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Students = d.Students[:300] // subconjunto para que el test sea rápido
+	res := Run(d)
+	if len(res) != 300 {
+		t.Fatalf("resultados = %d, quiero 300", len(res))
+	}
+	for s, r := range res {
+		if r.Student != shared.ID(s) {
+			t.Fatalf("posición %d tiene al estudiante %d", s, r.Student)
+		}
+	}
+}
+// Package concurrent reparte el trabajo entre goroutines. El algoritmo en sí
+// es shared.Recommend; aquí solo cambia cómo se reparte y se recolecta.
+//
+// El Dataset es de solo lectura durante la recomendación, así que no hace falta
+// ningún mutex: la única sincronización son los canales y el WaitGroup.
+package concurrent
+
+import (
+	"sync"
+
+	"recommendation/shared"
+)
+
+// Run usa el patrón productor / workers / recolector del pseudocódigo.
+// Devuelve los resultados ordenados por estudiante (el recolector los recibe
+// en orden no determinista).
+func Run(d *shared.Dataset, workers int) []shared.Result {
+	if workers < 1 {
+		workers = 1
+	}
+	pending := make(chan shared.ID)
+	resultsCh := make(chan shared.Result)
+
+	// productor: close(pending) avisa el fin, no hace falta centinela
+	go func() {
+		for s := 0; s < d.NumStudents(); s++ {
+			pending <- shared.ID(s)
+		}
+		close(pending)
+	}()
+
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for w := 0; w < workers; w++ {
+		go func() {
+			defer wg.Done()
+			for s := range pending {
+				resultsCh <- shared.Result{Student: s, Recs: d.Recommend(s)}
+			}
+		}()
+	}
+
+	// se cierra el canal cuando terminan todos los workers; así el recolector
+	// puede leer mientras tanto y no hay deadlock
+	go func() {
+		wg.Wait()
+		close(resultsCh)
+	}()
+
+	results := make([]shared.Result, 0, d.NumStudents())
+	for r := range resultsCh {
+		results = append(results, r)
+	}
+	shared.SortResults(results)
+	return results
+}
+
+// RunPrealloc es la variante sin canal de resultados: cada worker escribe en
+// su posición de un slice pre-asignado. Las posiciones son distintas, así que
+// no hay carrera ni hace falta ordenar después.
+func RunPrealloc(d *shared.Dataset, workers int) []shared.Result {
+	if workers < 1 {
+		workers = 1
+	}
+	results := make([]shared.Result, d.NumStudents())
+	pending := make(chan shared.ID)
+
+	go func() {
+		for s := range results {
+			pending <- shared.ID(s)
+		}
+		close(pending)
+	}()
+
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for w := 0; w < workers; w++ {
+		go func() {
+			defer wg.Done()
+			for s := range pending {
+				results[s] = shared.Result{Student: s, Recs: d.Recommend(s)}
+			}
+		}()
+	}
+	wg.Wait()
+	return results
+}
+package concurrent
+
+import (
+	"bytes"
+	"os"
+	"runtime"
+	"testing"
+
+	"recommendation/sequential"
+	"recommendation/shared"
+)
+
+const dataDir = "../../dataset/data"
+
+func loadReal(t *testing.T) *shared.Dataset {
+	t.Helper()
+	if _, err := os.Stat(dataDir); err != nil {
+		t.Skip("dataset real no disponible")
+	}
+	d, err := shared.LoadDataset(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raceEnabled {
+		d.Students = d.Students[:1500]
+	}
+	return d
+}
+
+func csvBytes(t *testing.T, d *shared.Dataset, rs []shared.Result) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := d.WriteCSV(&buf, rs); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// La salida secuencial y la concurrente deben ser idénticas byte a byte
+// para cualquier número de workers.
+func TestEquivalenceWithSequential(t *testing.T) {
+	d := loadReal(t)
+	want := sequential.Run(d)
+	wantCSV := csvBytes(t, d, want)
+
+	for _, w := range []int{1, 2, 4, runtime.NumCPU(), 64} {
+		for name, run := range map[string]func(*shared.Dataset, int) []shared.Result{
+			"canal": Run, "prealloc": RunPrealloc,
+		} {
+			got := run(d, w)
+			if !shared.EqualResults(want, got) {
+				t.Errorf("%s, %d workers: resultados distintos", name, w)
+			}
+			if !bytes.Equal(wantCSV, csvBytes(t, d, got)) {
+				t.Errorf("%s, %d workers: CSV distinto", name, w)
+			}
+		}
+	}
+}
+
+func TestEdgeCases(t *testing.T) {
+	d := loadReal(t)
+	d.Students = d.Students[:3] // más workers que estudiantes
+	want := sequential.Run(d)
+	if !shared.EqualResults(want, Run(d, 16)) {
+		t.Error("más workers que estudiantes: resultados distintos")
+	}
+	if !shared.EqualResults(want, Run(d, 0)) {
+		t.Error("workers=0 debe comportarse como 1")
+	}
+	d.Students = nil
+	if got := Run(d, 4); len(got) != 0 {
+		t.Errorf("sin estudiantes debe devolver vacío, devolvió %d", len(got))
+	}
+	if got := RunPrealloc(d, 4); len(got) != 0 {
+		t.Errorf("prealloc sin estudiantes debe devolver vacío, devolvió %d", len(got))
+	}
+}
+
+func BenchmarkRun(b *testing.B) {
+	if _, err := os.Stat(dataDir); err != nil {
+		b.Skip("dataset real no disponible")
+	}
+	d, err := shared.LoadDataset(dataDir)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Run("canal", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			Run(d, runtime.NumCPU())
+		}
+	})
+	b.Run("prealloc", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			RunPrealloc(d, runtime.NumCPU())
+		}
+	})
+}
+//go:build !race
+
+package concurrent
+
+const raceEnabled = false
+//go:build race
+
+package concurrent
+
+// Con el detector de carreras todo corre ~10x más lento: se usa un subconjunto.
+const raceEnabled = true
+package main
+
+import (
+	"fmt"
+	"math"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// Gráficos SVG sin dependencias. Colores: slots 1 y 2 de la paleta categórica
+// de referencia (azul y naranja, en ese orden fijo), con variante oscura.
+// Los marcadores difieren en forma (círculo / cuadrado) para no depender solo del color.
+
+type point struct{ x, y, lo, hi float64 } // lo/hi: rango mín-máx de las repeticiones
+
+type chartLine struct {
+	name   string
+	class  string // s1 | s2
+	square bool
+	pts    []point
+}
+
+type chart struct {
+	title, subtitle, yLabel string
+	yMax                    float64
+	ticks                   []float64
+	tickFmt                 string
+	ideal                   []point // referencia, línea punteada gris
+	idealName               string
+	lines                   []chartLine
+	maxX                    float64
+}
+
+const svgStyle = `<style>
+svg{--surface:#fcfcfb;--text:#0b0b0b;--text2:#52514e;--grid:#e6e5e0;--s1:#2a78d6;--s2:#eb6834;font-family:system-ui,Segoe UI,Arial,sans-serif}
+@media (prefers-color-scheme:dark){svg{--surface:#1a1a19;--text:#ffffff;--text2:#c3c2b7;--grid:#34342f;--s1:#3987e5;--s2:#d95926}}
+.bg{fill:var(--surface)}.t{fill:var(--text)}.t2{fill:var(--text2)}
+.grid{stroke:var(--grid);stroke-width:1}.axis{stroke:var(--text2);stroke-width:1}
+.ideal{stroke:var(--text2);stroke-width:1.5;stroke-dasharray:5 4;fill:none}
+.s1.l{stroke:var(--s1)}.s2.l{stroke:var(--s2)}
+.s1.m{fill:var(--s1)}.s2.m{fill:var(--s2)}
+.l{fill:none;stroke-width:2;stroke-linejoin:round}.m{stroke:var(--surface);stroke-width:2}
+.w{stroke-width:1.5;opacity:.55}
+</style>`
+
+func (c chart) svg() string {
+	const W, H = 720.0, 420.0
+	const ml, mr, mt, mb = 64.0, 28.0, 84.0, 68.0
+	pw, ph := W-ml-mr, H-mt-mb
+	px := func(x float64) float64 { return ml + math.Log2(x)/math.Log2(c.maxX)*pw }
+	py := func(y float64) float64 { return mt + ph - y/c.yMax*ph }
+
+	var b strings.Builder
+	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %g %g" width="%g" height="%g" role="img" aria-label="%s">`, W, H, W, H, c.title)
+	b.WriteString(svgStyle)
+	fmt.Fprintf(&b, `<rect class="bg" width="%g" height="%g"/>`, W, H)
+	fmt.Fprintf(&b, `<text class="t" x="%g" y="26" font-size="16" font-weight="600">%s</text>`, ml, c.title)
+	fmt.Fprintf(&b, `<text class="t2" x="%g" y="44" font-size="12">%s</text>`, ml, c.subtitle)
+
+	// cuadrícula y eje Y
+	for _, t := range c.ticks {
+		y := py(t)
+		fmt.Fprintf(&b, `<line class="grid" x1="%g" x2="%g" y1="%.1f" y2="%.1f"/>`, ml, ml+pw, y, y)
+		fmt.Fprintf(&b, `<text class="t2" x="%g" y="%.1f" font-size="12" text-anchor="end">%s</text>`, ml-8, y+4, fmt.Sprintf(c.tickFmt, t))
+	}
+	fmt.Fprintf(&b, `<line class="axis" x1="%g" x2="%g" y1="%g" y2="%g"/>`, ml, ml+pw, mt+ph, mt+ph)
+	fmt.Fprintf(&b, `<text class="t2" font-size="12" text-anchor="middle" transform="translate(16 %g) rotate(-90)">%s</text>`, mt+ph/2, c.yLabel)
+
+	// eje X: un tick por cada cantidad de workers medida
+	for _, p := range c.lines[0].pts {
+		fmt.Fprintf(&b, `<text class="t2" x="%.1f" y="%g" font-size="12" text-anchor="middle">%g</text>`, px(p.x), mt+ph+20, p.x)
+	}
+	fmt.Fprintf(&b, `<text class="t2" x="%g" y="%g" font-size="12" text-anchor="middle">workers (escala logarítmica)</text>`, ml+pw/2, H-14)
+
+	// referencia
+	if len(c.ideal) == 2 {
+		fmt.Fprintf(&b, `<line class="ideal" x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f"/>`,
+			px(c.ideal[0].x), py(c.ideal[0].y), px(c.ideal[1].x), py(c.ideal[1].y))
+	}
+
+	// series
+	for _, l := range c.lines {
+		var path strings.Builder
+		for i, p := range l.pts {
+			cmd := "L"
+			if i == 0 {
+				cmd = "M"
+			}
+			fmt.Fprintf(&path, "%s%.1f %.1f", cmd, px(p.x), py(p.y))
+		}
+		fmt.Fprintf(&b, `<path class="%s l" d="%s"/>`, l.class, path.String())
+		for _, p := range l.pts {
+			x := px(p.x)
+			fmt.Fprintf(&b, `<line class="%s l w" x1="%.1f" x2="%.1f" y1="%.1f" y2="%.1f"/>`, l.class, x, x, py(p.lo), py(p.hi))
+			tip := fmt.Sprintf("%s, %g workers: %.2f (rango %.2f a %.2f)", l.name, p.x, p.y, p.lo, p.hi)
+			if l.square {
+				fmt.Fprintf(&b, `<rect class="%s m" x="%.1f" y="%.1f" width="9" height="9"><title>%s</title></rect>`, l.class, x-4.5, py(p.y)-4.5, tip)
+			} else {
+				fmt.Fprintf(&b, `<circle class="%s m" cx="%.1f" cy="%.1f" r="5"><title>%s</title></circle>`, l.class, x, py(p.y), tip)
+			}
+		}
+	}
+
+	// leyenda (siempre presente con 2 o más series)
+	lx, ly := ml, 62.0
+	fmt.Fprintf(&b, `<line class="s1 l" x1="%g" x2="%g" y1="%g" y2="%g"/><circle class="s1 m" cx="%g" cy="%g" r="5"/>`, lx, lx+22, ly, ly, lx+11, ly)
+	fmt.Fprintf(&b, `<text class="t2" x="%g" y="%g" font-size="12">%s</text>`, lx+28, ly+4, c.lines[0].name)
+	fmt.Fprintf(&b, `<line class="s2 l" x1="%g" x2="%g" y1="%g" y2="%g"/><rect class="s2 m" x="%g" y="%g" width="9" height="9"/>`, lx+190, lx+212, ly, ly, lx+190+6.5, ly-4.5)
+	fmt.Fprintf(&b, `<text class="t2" x="%g" y="%g" font-size="12">%s</text>`, lx+218, ly+4, c.lines[1].name)
+	fmt.Fprintf(&b, `<line class="ideal" x1="%g" x2="%g" y1="%g" y2="%g"/>`, lx+370, lx+392, ly, ly)
+	fmt.Fprintf(&b, `<text class="t2" x="%g" y="%g" font-size="12">%s</text>`, lx+398, ly+4, c.idealName)
+
+	b.WriteString(`</svg>`)
+	return b.String()
+}
+
+// writeCharts genera speedup.svg y eficiencia.svg junto al reporte.
+// Cada punto es la mediana; la barra fina vertical marca el rango mín-máx de las repeticiones.
+func writeCharts(dir string, reps int, seq *series, conc []*series) error {
+	base := compute(seq.times)
+	byName := map[string][]point{}
+	for _, s := range conc {
+		c := compute(s.times)
+		w := float64(s.workers)
+		// el mejor tiempo (mín) da el mayor speedup y el peor (máx) el menor
+		byName[s.name] = append(byName[s.name], point{
+			x: w, y: base.median / c.median, lo: base.median / c.max, hi: base.median / c.min,
+		})
+	}
+	maxW := byName["canal"][len(byName["canal"])-1].x
+	sub := fmt.Sprintf("Mediana de %d repeticiones; la barra vertical marca el mínimo y el máximo", reps)
+
+	speedup := chart{
+		title: "Speedup frente al secuencial", subtitle: sub, yLabel: "speedup (T_sec / T_conc)",
+		yMax: maxW, tickFmt: "%.0f", maxX: maxW, idealName: "ideal (speedup = workers)",
+		ideal: []point{{x: 1, y: 1}, {x: maxW, y: maxW}},
+	}
+	eff := chart{
+		title: "Eficiencia frente al secuencial", subtitle: sub, yLabel: "eficiencia (speedup / workers)",
+		yMax: 1.1, tickFmt: "%.2f", maxX: maxW, idealName: "ideal (eficiencia = 1)",
+		ideal: []point{{x: 1, y: 1}, {x: maxW, y: 1}},
+	}
+	for i := 0; i <= 4; i++ {
+		speedup.ticks = append(speedup.ticks, maxW*float64(i)/4)
+		if i < 4 {
+			eff.ticks = append(eff.ticks, 0.25*float64(i+1))
+		}
+	}
+	eff.ticks = append([]float64{0}, eff.ticks...)
+
+	for _, v := range []struct {
+		name, label, class string
+		square             bool
+	}{{"canal", "canal de resultados", "s1", false}, {"prealloc", "slice pre-asignado", "s2", true}} {
+		sl := chartLine{name: v.label, class: v.class, square: v.square}
+		el := chartLine{name: v.label, class: v.class, square: v.square}
+		for _, p := range byName[v.name] {
+			sl.pts = append(sl.pts, p)
+			el.pts = append(el.pts, point{x: p.x, y: p.y / p.x, lo: p.lo / p.x, hi: p.hi / p.x})
+		}
+		speedup.lines = append(speedup.lines, sl)
+		eff.lines = append(eff.lines, el)
+	}
+
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	for name, c := range map[string]chart{"speedup.svg": speedup, "eficiencia.svg": eff} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(c.svg()), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+// Comando que mide speedup y eficiencia del modo concurrente frente al secuencial
+// y escribe benchmarks/resultados_speedup.md.
+//
+//	go run ./benchmark -hardware "CPU / RAM / SO"
+package main
+
+import (
+	"flag"
+	"fmt"
+	"math"
+	"os"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"strings"
+	"time"
+
+	"recommendation/concurrent"
+	"recommendation/sequential"
+	"recommendation/shared"
+)
+
+type runner func() []shared.Result
+
+type series struct {
+	name    string
+	workers int
+	times   []float64 // segundos
+}
+
+type stats struct{ median, mean, std, min, max float64 }
+
+func compute(xs []float64) stats {
+	s := append([]float64(nil), xs...)
+	sort.Float64s(s)
+	n := len(s)
+	st := stats{min: s[0], max: s[n-1]}
+	if n%2 == 1 {
+		st.median = s[n/2]
+	} else {
+		st.median = (s[n/2-1] + s[n/2]) / 2
+	}
+	for _, x := range s {
+		st.mean += x
+	}
+	st.mean /= float64(n)
+	for _, x := range s {
+		st.std += (x - st.mean) * (x - st.mean)
+	}
+	if n > 1 {
+		st.std = math.Sqrt(st.std / float64(n-1))
+	}
+	return st
+}
+
+// workerCounts devuelve 1, 2, 4, 8... y NumCPU.
+func workerCounts() []int {
+	var ws []int
+	for w := 1; w < runtime.NumCPU(); w *= 2 {
+		ws = append(ws, w)
+	}
+	return append(ws, runtime.NumCPU())
+}
+
+func timeIt(f runner) (time.Duration, []shared.Result) {
+	runtime.GC() // que el GC de la corrida anterior no cuente en esta
+	start := time.Now()
+	res := f()
+	return time.Since(start), res
+}
+
+func main() {
+	dataDir := flag.String("data", "../dataset/data", "carpeta de los CSV")
+	reps := flag.Int("reps", 10, "repeticiones medidas (además de 1 de calentamiento)")
+	outPath := flag.String("out", "../benchmarks/resultados_speedup.md", "archivo de salida")
+	hardware := flag.String("hardware", "(sin especificar)", "descripción del hardware")
+	flag.Parse()
+
+	d, err := shared.LoadDataset(*dataDir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+
+	seq := &series{name: "secuencial", workers: 1}
+	runs := map[*series]runner{seq: func() []shared.Result { return sequential.Run(d) }}
+	all := []*series{seq}
+	for _, variant := range []struct {
+		name string
+		run  func(*shared.Dataset, int) []shared.Result
+	}{{"canal", concurrent.Run}, {"prealloc", concurrent.RunPrealloc}} {
+		for _, w := range workerCounts() {
+			s := &series{name: variant.name, workers: w}
+			run, w := variant.run, w
+			runs[s] = func() []shared.Result { return run(d, w) }
+			all = append(all, s)
+		}
+	}
+
+	// calentamiento (1 corrida de cada una) y verificación de resultados idénticos
+	_, want := timeIt(runs[seq])
+	for _, s := range all[1:] {
+		if _, got := timeIt(runs[s]); !shared.EqualResults(want, got) {
+			fmt.Fprintf(os.Stderr, "error: %s con %d workers difiere del secuencial\n", s.name, s.workers)
+			os.Exit(1)
+		}
+	}
+
+	// las repeticiones se intercalan entre configuraciones para repartir
+	// por igual cualquier deriva térmica o de carga del sistema
+	for r := 1; r <= *reps; r++ {
+		fmt.Printf("repetición %d/%d\n", r, *reps)
+		for _, s := range all {
+			t, _ := timeIt(runs[s])
+			s.times = append(s.times, t.Seconds())
+		}
+	}
+
+	report(*outPath, *hardware, *reps, d, seq, all[1:])
+	if err := writeCharts(filepath.Dir(*outPath), *reps, seq, all[1:]); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	fmt.Println("escrito:", *outPath)
+}
+
+func report(path, hardware string, reps int, d *shared.Dataset, seq *series, conc []*series) {
+	var b strings.Builder
+	st := compute(seq.times)
+
+	fmt.Fprintf(&b, "# Resultados de speedup\n\n")
+	fmt.Fprintf(&b, "Generado con `go run ./benchmark` el %s.\n\n", time.Now().Format("2006-01-02 15:04"))
+	fmt.Fprintf(&b, "## Entorno\n\n- Hardware: %s\n- Go: %s (%s/%s), `runtime.NumCPU()` = %d\n", hardware, runtime.Version(), runtime.GOOS, runtime.GOARCH, runtime.NumCPU())
+	fmt.Fprintf(&b, "- Datos: %d estudiantes, %d cursos, K=%d vecinos, %d recomendaciones\n", d.NumStudents(), d.NumCourses(), shared.NumNeighbors, shared.NumRecommendations)
+	fmt.Fprintf(&b, "- Método: 1 corrida de calentamiento + %d repeticiones por configuración, intercaladas. El tiempo mide solo la fase de recomendación (sin la carga de CSV); incluye ordenar los resultados. Antes de medir se verificó que todas las configuraciones dan resultados idénticos al secuencial.\n", reps)
+	fmt.Fprintf(&b, "- **speedup = T_sec / T_conc** y **eficiencia = speedup / workers**, ambos con la **mediana**. `f` es la fracción serial estimada con la métrica de Karp-Flatt: f = (1/S − 1/p) / (1 − 1/p).\n\n")
+
+	b.WriteString("## Gráficos\n\n![Speedup](speedup.svg)\n\n![Eficiencia](eficiencia.svg)\n\n")
+	fmt.Fprintf(&b, "## Secuencial\n\n| mediana (s) | media (s) | desv. est. (s) | mín (s) | máx (s) |\n|---|---|---|---|---|\n")
+	fmt.Fprintf(&b, "| %.3f | %.3f | %.3f | %.3f | %.3f |\n\n", st.median, st.mean, st.std, st.min, st.max)
+
+	for _, variant := range []struct{ name, title string }{
+		{"canal", "Concurrente: productor / workers / recolector (canal de resultados)"},
+		{"prealloc", "Concurrente: variante con slice pre-asignado (sin canal de resultados)"},
+	} {
+		fmt.Fprintf(&b, "## %s\n\n| workers | mediana (s) | media (s) | desv. est. (s) | mín (s) | máx (s) | speedup | eficiencia | f |\n|---|---|---|---|---|---|---|---|---|\n", variant.title)
+		for _, s := range conc {
+			if s.name != variant.name {
+				continue
+			}
+			c := compute(s.times)
+			sp := st.median / c.median
+			f := "—"
+			if s.workers > 1 {
+				f = fmt.Sprintf("%.3f", (1/sp-1/float64(s.workers))/(1-1/float64(s.workers)))
+			}
+			fmt.Fprintf(&b, "| %d | %.3f | %.3f | %.3f | %.3f | %.3f | %.2fx | %.2f | %s |\n",
+				s.workers, c.median, c.mean, c.std, c.min, c.max, sp, sp/float64(s.workers), f)
+		}
+		b.WriteString("\n")
+	}
+
+	if disc, err := os.ReadFile(filepath.Join(filepath.Dir(path), "discusion.md")); err == nil {
+		b.Write(disc)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+}
+package main
+
+import (
+	"flag"
+	"fmt"
+	"os"
+	"runtime"
+	"time"
+
+	"recommendation/concurrent"
+	"recommendation/sequential"
+	"recommendation/shared"
+)
+
+func main() {
+	seq := flag.Bool("sequential", false, "corre el modo secuencial")
+	conc := flag.Bool("concurrent", false, "corre el modo concurrente")
+	workers := flag.Int("workers", runtime.NumCPU(), "número de workers del modo concurrente")
+	dataDir := flag.String("data", "../dataset/data", "carpeta de los CSV")
+	out := flag.String("out", "", "CSV de salida (opcional)")
+	flag.Parse()
+
+	if !*seq && !*conc {
+		fmt.Fprintln(os.Stderr, "uso: go run . [-sequential] [-concurrent] [-workers N] [-data ruta] [-out archivo]")
+		flag.PrintDefaults()
+		os.Exit(2)
+	}
+
+	start := time.Now()
+	d, err := shared.LoadDataset(*dataDir)
+	if err != nil {
+		fail(err)
+	}
+	fmt.Printf("datos cargados: %d estudiantes, %d cursos (%v)\n", d.NumStudents(), d.NumCourses(), time.Since(start))
+
+	var seqRes, concRes []shared.Result
+	var tSeq, tConc time.Duration
+	// el tiempo mide solo la fase de recomendación, sin la carga
+	if *seq {
+		start = time.Now()
+		seqRes = sequential.Run(d)
+		tSeq = time.Since(start)
+		fmt.Printf("secuencial: %v\n", tSeq)
+	}
+	if *conc {
+		start = time.Now()
+		concRes = concurrent.Run(d, *workers)
+		tConc = time.Since(start)
+		fmt.Printf("concurrente (%d workers): %v\n", *workers, tConc)
+	}
+
+	results := seqRes
+	if *seq && *conc {
+		if !shared.EqualResults(seqRes, concRes) {
+			fail(fmt.Errorf("los resultados secuencial y concurrente DIFIEREN"))
+		}
+		speedup := float64(tSeq) / float64(tConc)
+		fmt.Printf("resultados idénticos. speedup: %.2fx, eficiencia: %.2f\n", speedup, speedup/float64(*workers))
+	} else if *conc {
+		results = concRes
+	}
+
+	if *out != "" {
+		shared.SortResults(results)
+		if err := d.WriteCSVFile(*out, results); err != nil {
+			fail(err)
+		}
+		fmt.Println("escrito:", *out)
+	}
+}
+
+func fail(err error) {
+	fmt.Fprintln(os.Stderr, "error:", err)
+	os.Exit(1)
+}

@@ -47,25 +47,28 @@ Diseñar e implementar un sistema distribuido y concurrente de recomendación de
 ```
 .
 ├── docs/
-│   ├── CC65-PC1-202620.pdf        # Informe PC1: investigación, caso de uso, dataset
-│   ├── CC65-PC2-202620.pdf        # Informe PC2 (Semana 5)
-│   └── CC65-TP-202620.pdf         # Informe final (Semana 7)
+│ ├── docs/informe-gaps.md # hallazgos de Claude Code sobre calidad, seguridad, concurrencia y testing
+│ └── CC65-TB1-202620.pdf # Informe final (Semana 7)
 ├── dataset/
-│   ├── notebook_generacion.ipynb  # Generación y depuración del dataset sintético
-│   └── data/                      # Datasets generados (microcursos, DAG, estudiantes, interacciones)
+│ ├── notebook_generacion.ipynb # Generación y depuración del dataset sintético
+│ └── data/ # Datasets generados (microcursos, DAG, estudiantes, interacciones)
 ├── psudocode/
-│   └── algorithm.md               # Pseudocódigo del algoritmo (fuente de verdad)
-├── src/                           # Implementación en Go (módulo `recommendation`)
-│   ├── main.go                    # CLI: -sequential / -concurrent / -workers / -data / -out
-│   ├── shared/                    # Carga y validación de CSV, Dataset inmutable, algoritmo y salida CSV
-│   ├── sequential/                # Modo secuencial: solo el bucle sobre los estudiantes
-│   ├── concurrent/                # Modo concurrente: productor / workers / recolector (+ variante pre-asignada)
-│   └── benchmark/                 # Comando que genera benchmarks/resultados_speedup.md
-├── promela/                       # Modelado y verificación formal en Promela/Spin
+│ └── algorithm.md # Pseudocódigo del algoritmo (fuente de verdad)
+├── src/ # Implementación en Go (módulo recommendation)
+│ ├── main.go # CLI: -sequential / -concurrent / -workers / -data / -out
+│ ├── shared/ # Carga y validación de CSV, Dataset inmutable, algoritmo y salida CSV
+│ ├── sequential/ # Modo secuencial: solo el bucle sobre los estudiantes
+│ ├── concurrent/ # Modo concurrente: productor / workers / recolector (+ variante pre-asignada)
+│ └── benchmark/ # Comando que genera benchmarks/resultados_speedup.md y los SVG
+├── promela/ # Modelado y verificación formal en Promela/Spin
 ├── benchmarks/
-│   └── resultados_speedup.md      # Tabla y estadísticas de Speedup (T-Secuencial / T-Concurrente)
+│ ├── resultados_speedup.md # Tabla y estadísticas de Speedup (T-Secuencial / T-Concurrente)
+│ ├── discusion.md # Análisis de los resultados (se anexa al reporte)
+│ ├── speedup.svg # Gráfico de speedup vs. workers
+│ └── eficiencia.svg # Gráfico de eficiencia vs. workers
 └── README.md
 ```
+
 
 ## Dataset
 
@@ -98,6 +101,7 @@ fix: corregir validación de rangos en depuración del dataset
 docs: actualizar README con estructura del repositorio
 refactor: extraer función de verificación de DAG
 ```
+
 
 Tipos sugeridos: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
 
@@ -163,13 +167,19 @@ El modo secuencial y el concurrente llaman a la misma función `shared.Recommend
 | Entregable | Semana | Estado |
 |---|---|---|
 | PC1 — Investigación, caso de uso, dataset | 3 | ✅ Entregado |
-| PC2 — Modelado Promela, implementación Go, speedup | 5 | ⏳ En desarrollo |
-| TP — Verificación Spin, informe con IA, sustentación | 7 | ⏳ Pendiente |
+| PC2 — Modelado Promela, implementación Go, speedup | 5 | ✅ Entregado |
+| TB1 — Verificación Spin, informe con IA, sustentación | 7 | ✅ Entregado |
+
+El proyecto está terminado. Los tres hitos del curso (PC1, PC2 y TB1) fueron completados y entregados: incluye el dataset sintético generado y depurado, el modelo Promela verificado con Spin, la implementación secuencial y concurrente en Go con pruebas unitarias y detector de carreras, el benchmark de speedup/eficiencia con gráficos SVG, y el análisis de GAPs asistido por IA. No se planifican cambios adicionales al código tras la fecha de entrega del TB1.
 
 ## Referencias
 
-Ver la bibliografía completa en `docs/CC65-PC1-202620.pdf`.
+Ver la bibliografía completa en `docs/CC65-TB1-202620.pdf`.
 
 ## Licencia
 
 Proyecto académico desarrollado para el curso CC65 — Programación Concurrente y Distribuida, UPC. Uso educativo.
+
+## Informe de análisis de GAPs
+
+Ver `docs/informe-gaps.md` — hallazgos de Claude Code sobre calidad, seguridad, concurrencia y testing.
