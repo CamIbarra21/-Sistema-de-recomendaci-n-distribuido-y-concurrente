@@ -47,7 +47,7 @@ Diseñar e implementar un sistema distribuido y concurrente de recomendación de
 ```
 .
 ├── docs/
-│ └── CC65-TB1-202620.pdf # Informe final (Semana 7)
+│ └── CC65-TP-202620.pdf # Informe final (Semana 7)
 ├── dataset/
 │ ├── notebook_generacion.ipynb # Generación y depuración del dataset sintético
 │ └── data/ # Datasets generados (microcursos, DAG, estudiantes, interacciones)
@@ -186,7 +186,7 @@ los modos secuencial y concurrente usan el `Dataset` inmutable, sin locks. Sus p
 
 ## Referencias
 
-Ver la bibliografía completa en `docs/CC65-TB1-202620.pdf`.
+Ver la bibliografía completa en `docs/CC65-TP-202620.pdf`.
 
 ## Licencia
 
