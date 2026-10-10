@@ -24,7 +24,9 @@
 #define CANTIDAD_ESTUDIANTES   3   // estudiantes simplificados para el modelo
 #define CANTIDAD_CURSOS        4   // microcursos simplificados para el modelo
 #define CANTIDAD_NUCLEOS       2   // 0 = Matematica, 1 = Lectura (simplificado a 2 para el ejemplo)
-#define CANTIDAD_WORKERS       2   // workers recomendadores en paralelo
+#ifndef CANTIDAD_WORKERS
+#define CANTIDAD_WORKERS       2   // workers recomendadores en paralelo (se puede cambiar con -DCANTIDAD_WORKERS=3)
+#endif
 #define CANTIDAD_VECINOS       2   // vecinos considerados por estudiante
 #define CANTIDAD_RECOMENDACIONES 2 // top-N de cursos a recomendar
 #define VALOR_CENTINELA       255  // "no hay más estudiantes" / "sin prerequisito"
@@ -179,6 +181,14 @@ chan canal_aviso_worker_finalizado = [CANTIDAD_WORKERS] of { byte };
 bool productor_termino_de_enviar = false;
 byte cantidad_workers_finalizados = 0;
 
+// Variables de seguridad (exclusión mutua sobre cada resultado):
+// procesado[e]  = cuántos workers tomaron al estudiante e (debe ser siempre <= 1).
+// recibido[e]   = cuántas veces llegó al recolector el resultado del estudiante e.
+byte procesado[CANTIDAD_ESTUDIANTES];
+byte recibido[CANTIDAD_ESTUDIANTES];
+byte resultados_recibidos = 0;
+bool recolector_termino = false;
+
 
 /* ----------------------------------------------------------------------
  * SECCION 6: PROCESO PRODUCTOR
@@ -241,6 +251,20 @@ proctype WorkerRecomendador(byte identificador_worker) {
             trabajo_terminado = true;
 
         :: else ->
+            /* Propiedad de seguridad: cada estudiante lo procesa UN solo worker, una sola vez.
+             * (Equivale a que dos workers nunca escriban la misma posición de resultados[].) */
+            atomic {
+                procesado[id_estudiante_recibido]++;
+                assert(procesado[id_estudiante_recibido] == 1)
+            }
+
+            /* Reducción de estados: los pasos A, B y C solo tocan variables locales del worker y
+             * datos globales de SOLO LECTURA, así que sus pasos internos no aportan entrelazados
+             * relevantes para las propiedades (que dependen de los canales y de procesado[]/recibido[]).
+             * Se agrupan en un atomic para que Spin no los intercale con los demás procesos.
+             * No cambia el cálculo. */
+            atomic {
+
             /* ---- Paso A: ObtenerVecinosMasSimilares (top-2 de similitud) ---- */
             mejor_vecino_1 = VALOR_CENTINELA; mejor_similitud_1 = 0;
             mejor_vecino_2 = VALOR_CENTINELA; mejor_similitud_2 = 0;
@@ -338,6 +362,8 @@ proctype WorkerRecomendador(byte identificador_worker) {
                 fi
             }
 
+            } // fin del atomic de cálculo
+
             canal_recomendaciones_calculadas !
                 id_estudiante_recibido, mejor_curso_1, mejor_curso_2;
 
@@ -345,6 +371,7 @@ proctype WorkerRecomendador(byte identificador_worker) {
                    identificador_worker, id_estudiante_recibido,
                    mejor_curso_1, mejor_curso_2, mejor_puntaje_1, mejor_puntaje_2);
         fi
+    :: trabajo_terminado -> break; // sin esta salida el worker se bloquea aquí y nunca avisa que terminó (deadlock)
     od;
 
     canal_aviso_worker_finalizado ! identificador_worker;
@@ -415,9 +442,11 @@ init {
     prerequisitos_del_curso[3 * 2 + 1] = 2;
 
     /* --- 8.6. Lanzamiento de procesos concurrentes --- */
+    byte indice_worker;
     run Productor();
-    run WorkerRecomendador(0);
-    run WorkerRecomendador(1);
+    for (indice_worker : 0 .. CANTIDAD_WORKERS - 1) {
+        run WorkerRecomendador(indice_worker);
+    }
 
     /* --- 8.7. Recolección de resultados + espera tipo WaitGroup --- */
     do
@@ -426,6 +455,10 @@ init {
         if
         :: canal_recomendaciones_calculadas ?
                 estudiante_resultado, curso_uno_resultado, curso_dos_resultado ->
+            // cada resultado debe llegar exactamente una vez (no se pierde ni se duplica)
+            recibido[estudiante_resultado]++;
+            assert(recibido[estudiante_resultado] == 1);
+            resultados_recibidos++;
             printf("Recolector: estudiante %d recomendado con cursos %d y %d\n",
                    estudiante_resultado, curso_uno_resultado, curso_dos_resultado);
 
@@ -437,28 +470,58 @@ init {
     :: else -> break;
     od;
 
+    /* --- 8.8. Comprobaciones finales (seguridad): nada se perdió ni se duplicó --- */
+    byte indice_comprobacion;
+    assert(resultados_recibidos == CANTIDAD_ESTUDIANTES);
+    for (indice_comprobacion : 0 .. CANTIDAD_ESTUDIANTES - 1) {
+        assert(procesado[indice_comprobacion] == 1);
+        assert(recibido[indice_comprobacion] == 1);
+    }
+    recolector_termino = true;
+
     printf("Sistema finalizado correctamente.\n");
 }
+
 
 
 /* ----------------------------------------------------------------------
  * SECCION 9: PROPIEDADES A VERIFICAR CON SPIN
  * ----------------------------------------------------------------------
- * 9.1. Ausencia de deadlock:
- *          spin -a sistema_recomendacion_v2.pml
- *          gcc -o pan pan.c
- *          ./pan
- *      "errors: 0" confirma que no hay deadlocks ni violaciones de
- *      aserción en ningún entrelazado explorado.
+ * Los comandos exactos (y el script que los corre) están en promela/README.md
+ * y promela/verificar.sh. Resumen:
  *
- * 9.2. Propiedad LTL: si el productor terminó de enviar, eventualmente
- *      todos los workers finalizan.
- *          spin -a -N todos_los_workers_terminan sistema_recomendacion_v2.pml
- *          gcc -o pan pan.c
- *          ./pan -a
+ * 9.1. Ausencia de deadlock (estados finales inválidos) y aserciones.
+ *      Se compila con -DNOCLAIM porque, al existir cláusulas LTL en el archivo,
+ *      Spin desactiva por defecto la revisión de estados finales inválidos.
+ *          spin -a main.pml
+ *          gcc -O2 -DNOCLAIM -o pan pan.c && ./pan
+ *      Aserciones comprobadas en todos los entrelazados:
+ *        - cada estudiante lo procesa un solo worker, una sola vez (procesado[e] == 1)
+ *        - cada resultado llega al recolector una sola vez (recibido[e] == 1)
+ *        - al final llegaron CANTIDAD_ESTUDIANTES resultados
+ *
+ * 9.2. Propiedades LTL (se elige una con -N al ejecutar pan):
+ *          spin -a main.pml
+ *          gcc -O2 -o pan pan.c
+ *          ./pan -a -f -N todos_los_workers_terminan   (vivacidad, con equidad débil)
+ *          ./pan -a -N exclusion_mutua_resultados      (seguridad)
+ *          ./pan -a -N resultados_completos            (seguridad)
  * ---------------------------------------------------------------------- */
 
+// Vivacidad: si el productor terminó de enviar, eventualmente todos los workers terminan.
 ltl todos_los_workers_terminan {
     [] (productor_termino_de_enviar ->
           <> (cantidad_workers_finalizados == CANTIDAD_WORKERS))
+}
+
+// Exclusión mutua sobre cada resultado: dos workers nunca procesan al mismo estudiante,
+// ni el recolector recibe dos veces el mismo resultado.
+ltl exclusion_mutua_resultados {
+    [] (procesado[0] <= 1 && procesado[1] <= 1 && procesado[2] <= 1 &&
+        recibido[0]  <= 1 && recibido[1]  <= 1 && recibido[2]  <= 1)
+}
+
+// Integridad: cuando el recolector termina, llegaron todos los resultados.
+ltl resultados_completos {
+    [] (recolector_termino -> resultados_recibidos == CANTIDAD_ESTUDIANTES)
 }
