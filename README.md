@@ -47,28 +47,26 @@ Diseñar e implementar un sistema distribuido y concurrente de recomendación de
 ```
 .
 ├── docs/
-│   ├── CC65-PC1-202620.pdf        # Informe PC1: investigación, caso de uso, dataset
-│   ├── CC65-PC2-202620.pdf        # Informe PC2 (Semana 5)
-│   └── CC65-TP-202620.pdf         # Informe final (Semana 7)
+│ └── CC65-TB1-202620.pdf # Informe final (Semana 7)
 ├── dataset/
-│   ├── notebook_generacion.ipynb  # Generación y depuración del dataset sintético
-│   └── data/                      # Datasets generados (microcursos, DAG, estudiantes, interacciones)
+│ ├── notebook_generacion.ipynb # Generación y depuración del dataset sintético
+│ └── data/ # Datasets generados (microcursos, DAG, estudiantes, interacciones)
 ├── psudocode/
-│   └── algorithm.md               # Pseudocódigo del algoritmo (fuente de verdad)
-├── src/                           # Implementación en Go (módulo `recommendation`)
-│   ├── main.go                    # CLI: -sequential / -concurrent / -workers / -data / -out
-│   ├── shared/                    # Carga y validación de CSV, Dataset inmutable, algoritmo y salida CSV
-│   ├── sequential/                # Modo secuencial: solo el bucle sobre los estudiantes
-│   ├── concurrent/                # Modo concurrente: productor / workers / recolector (+ variante pre-asignada)
-│   └── benchmark/                 # Comando que genera benchmarks/resultados_speedup.md
-├── promela/                       # Modelado y verificación formal en Promela/Spin
-│   ├── src/main.pml               # Productor / workers / recolector (deadlock, exclusión mutua, integridad)
-│   ├── src/progreso.pml           # Exclusión mutua del RWMutex del módulo de progreso
-│   ├── verificar.sh               # Corre toda la verificación (Spin local o Docker)
-│   └── README.md                  # Propiedades, resultados y hallazgos
+│ └── algorithm.md # Pseudocódigo del algoritmo (fuente de verdad)
+├── src/ # Implementación en Go (módulo recommendation)
+│ ├── main.go # CLI: -sequential / -concurrent / -workers / -data / -out
+│ ├── resumen.txt # Volcado consolidado del código fuente (referencia rápida)
+│ ├── shared/ # Carga y validación de CSV, Dataset inmutable, algoritmo y salida CSV
+│ ├── sequential/ # Modo secuencial: solo el bucle sobre los estudiantes
+│ ├── concurrent/ # Modo concurrente: productor / workers / recolector (+ variante pre-asignada)
+│ └── benchmark/ # Comando que genera benchmarks/resultados_speedup.md y los SVG
+├── promela/ # Modelado y verificación formal en Promela/Spin
 ├── benchmarks/
-│   └── resultados_speedup.md      # Tabla y estadísticas de Speedup (T-Secuencial / T-Concurrente)
-└── README.md
+│ ├── resultados_speedup.md # Tabla y estadísticas de Speedup (T-Secuencial / T-Concurrente)
+│ ├── discusion.md # Análisis de los resultados (se anexa al reporte)
+│ ├── speedup.svg # Gráfico de speedup vs. workers
+│ └── eficiencia.svg # Gráfico de eficiencia vs. workers
+└── README.md             # Pseudocódigo del a
 ```
 
 ## Dataset
@@ -183,12 +181,12 @@ los modos secuencial y concurrente usan el `Dataset` inmutable, sin locks. Sus p
 | Entregable | Semana | Estado |
 |---|---|---|
 | PC1 — Investigación, caso de uso, dataset | 3 | ✅ Entregado |
-| PC2 — Modelado Promela, implementación Go, speedup | 5 | ⏳ En desarrollo |
-| TP — Verificación Spin, informe con IA, sustentación | 7 | ⏳ Pendiente |
+| PC2 — Modelado Promela, implementación Go, speedup | 5 | ✅ Entregado |
+| TP — Verificación Spin, informe con IA, sustentación | 7 | ✅ Entregado |
 
 ## Referencias
 
-Ver la bibliografía completa en `docs/CC65-PC1-202620.pdf`.
+Ver la bibliografía completa en `docs/CC65-TB1-202620.pdf`.
 
 ## Licencia
 
