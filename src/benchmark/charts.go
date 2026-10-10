@@ -39,9 +39,10 @@ svg{--surface:#fcfcfb;--text:#0b0b0b;--text2:#52514e;--grid:#e6e5e0;--s1:#2a78d6
 .grid{stroke:var(--grid);stroke-width:1}.axis{stroke:var(--text2);stroke-width:1}
 .ideal{stroke:var(--text2);stroke-width:1.5;stroke-dasharray:5 4;fill:none}
 .s1.l{stroke:var(--s1)}.s2.l{stroke:var(--s2)}
-.s1.m{fill:var(--s1)}.s2.m{fill:var(--s2)}
+.s0.m{fill:var(--text2)}.s1.m{fill:var(--s1)}.s2.m{fill:var(--s2)}
 .l{fill:none;stroke-width:2;stroke-linejoin:round}.m{stroke:var(--surface);stroke-width:2}
 .w{stroke-width:1.5;opacity:.55}
+.wh{stroke:var(--text2);stroke-width:1.5;opacity:.8}
 </style>`
 
 func (c chart) svg() string {
@@ -116,7 +117,7 @@ func (c chart) svg() string {
 }
 
 // writeCharts genera speedup.svg y eficiencia.svg junto al reporte.
-// Cada punto es la mediana; la barra fina vertical marca el rango mín-máx de las repeticiones.
+// Cada punto es la media recortada; la barra fina vertical marca el rango mín-máx de las repeticiones.
 func writeCharts(dir string, reps int, seq *series, conc []*series) error {
 	base := compute(seq.times)
 	byName := map[string][]point{}
@@ -125,11 +126,11 @@ func writeCharts(dir string, reps int, seq *series, conc []*series) error {
 		w := float64(s.workers)
 		// el mejor tiempo (mín) da el mayor speedup y el peor (máx) el menor
 		byName[s.name] = append(byName[s.name], point{
-			x: w, y: base.median / c.median, lo: base.median / c.max, hi: base.median / c.min,
+			x: w, y: base.trimmed / c.trimmed, lo: base.trimmed / c.max, hi: base.trimmed / c.min,
 		})
 	}
 	maxW := byName["canal"][len(byName["canal"])-1].x
-	sub := fmt.Sprintf("Mediana de %d repeticiones; la barra vertical marca el mínimo y el máximo", reps)
+	sub := fmt.Sprintf("Media recortada de %d repeticiones; la barra vertical marca el mínimo y el máximo", reps)
 
 	speedup := chart{
 		title: "Speedup frente al secuencial", subtitle: sub, yLabel: "speedup (T_sec / T_conc)",
@@ -166,10 +167,105 @@ func writeCharts(dir string, reps int, seq *series, conc []*series) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	if err := os.WriteFile(filepath.Join(dir, "tiempos.svg"), []byte(timesSVG(base, conc)), 0o644); err != nil {
+		return err
+	}
 	for name, c := range map[string]chart{"speedup.svg": speedup, "eficiencia.svg": eff} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(c.svg()), 0o644); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// timesSVG dibuja el tiempo de ejecución (media recortada) del secuencial y del concurrente
+// con cada cantidad de workers, para las dos variantes. La barra fina marca mín-máx.
+func timesSVG(seq stats, conc []*series) string {
+	const W, H = 720.0, 420.0
+	const ml, mr, mt, mb = 64.0, 28.0, 84.0, 68.0
+	pw, ph := W-ml-mr, H-mt-mb
+
+	// ejes: el máximo es el mayor valor entre los máximos de cada repeticion
+	top := seq.max
+	for _, s := range conc {
+		if m := compute(s.times).max; m > top {
+			top = m
+		}
+	}
+	step := 0.5
+	for _, st := range []float64{0.5, 1, 2, 5, 10} {
+		step = st
+		if top/st <= 5 {
+			break
+		}
+	}
+	yMax := math.Ceil(top/step) * step
+	py := func(y float64) float64 { return mt + ph - y/yMax*ph }
+
+	// grupos: secuencial + una por cada cantidad de workers
+	var workers []int
+	for _, s := range conc {
+		if s.name == "canal" {
+			workers = append(workers, s.workers)
+		}
+	}
+	groups := len(workers) + 1
+	gw := pw / float64(groups)
+	const bw = 24.0
+
+	var b strings.Builder
+	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %g %g" width="%g" height="%g" role="img" aria-label="Tiempo de ejecución secuencial frente a concurrente">`, W, H, W, H)
+	b.WriteString(svgStyle)
+	fmt.Fprintf(&b, `<rect class="bg" width="%g" height="%g"/>`, W, H)
+	fmt.Fprintf(&b, `<text class="t" x="%g" y="26" font-size="16" font-weight="600">Tiempo de ejecución: secuencial frente a concurrente</text>`, ml)
+	fmt.Fprintf(&b, `<text class="t2" x="%g" y="44" font-size="12">Media recortada de las repeticiones; la barra vertical marca el mínimo y el máximo. Menos es mejor</text>`, ml)
+
+	for t := 0.0; t <= yMax+1e-9; t += step {
+		y := py(t)
+		fmt.Fprintf(&b, `<line class="grid" x1="%g" x2="%g" y1="%.1f" y2="%.1f"/>`, ml, ml+pw, y, y)
+		fmt.Fprintf(&b, `<text class="t2" x="%g" y="%.1f" font-size="12" text-anchor="end">%g</text>`, ml-8, y+4, t)
+	}
+	fmt.Fprintf(&b, `<line class="axis" x1="%g" x2="%g" y1="%g" y2="%g"/>`, ml, ml+pw, mt+ph, mt+ph)
+	fmt.Fprintf(&b, `<text class="t2" font-size="12" text-anchor="middle" transform="translate(16 %g) rotate(-90)">tiempo (s)</text>`, mt+ph/2)
+
+	bar := func(cx float64, class, label string, c stats, showValue bool) {
+		x, y := cx-bw/2, py(c.trimmed)
+		fmt.Fprintf(&b, `<rect class="%s m" x="%.1f" y="%.1f" width="%g" height="%.1f" rx="3"><title>%s: %.2f s (rango %.2f a %.2f)</title></rect>`,
+			class, x, y, bw, mt+ph-y, label, c.trimmed, c.min, c.max)
+		fmt.Fprintf(&b, `<line class="t2 wh" x1="%.1f" x2="%.1f" y1="%.1f" y2="%.1f"/>`, cx, cx, py(c.min), py(c.max))
+		if showValue {
+			fmt.Fprintf(&b, `<text class="t" x="%.1f" y="%.1f" font-size="11" text-anchor="middle">%.2f</text>`, cx, py(c.max)-5, c.trimmed)
+		}
+	}
+
+	// grupo 0: secuencial (neutro, una sola barra)
+	bar(ml+gw/2, "s0", "secuencial", seq, true)
+	fmt.Fprintf(&b, `<text class="t2" x="%.1f" y="%g" font-size="12" text-anchor="middle">secuencial</text>`, ml+gw/2, mt+ph+20)
+	for i, w := range workers {
+		cx := ml + gw*float64(i+1) + gw/2
+		for _, s := range conc {
+			if s.workers != w {
+				continue
+			}
+			c := compute(s.times)
+			if s.name == "canal" {
+				bar(cx-bw/2-1, "s1", fmt.Sprintf("canal, %d workers", w), c, true)
+			} else {
+				bar(cx+bw/2+1, "s2", fmt.Sprintf("slice pre-asignado, %d workers", w), c, false)
+			}
+		}
+		label := fmt.Sprintf("%d workers", w)
+		if w == 1 {
+			label = "1 worker"
+		}
+		fmt.Fprintf(&b, `<text class="t2" x="%.1f" y="%g" font-size="12" text-anchor="middle">%s</text>`, cx, mt+ph+20, label)
+	}
+
+	// leyenda
+	lx, ly := ml, 62.0
+	fmt.Fprintf(&b, `<rect class="s0 m" x="%g" y="%g" width="12" height="12" rx="2"/><text class="t2" x="%g" y="%g" font-size="12">secuencial</text>`, lx, ly-6, lx+18, ly+4)
+	fmt.Fprintf(&b, `<rect class="s1 m" x="%g" y="%g" width="12" height="12" rx="2"/><text class="t2" x="%g" y="%g" font-size="12">concurrente, canal de resultados</text>`, lx+120, ly-6, lx+138, ly+4)
+	fmt.Fprintf(&b, `<rect class="s2 m" x="%g" y="%g" width="12" height="12" rx="2"/><text class="t2" x="%g" y="%g" font-size="12">concurrente, slice pre-asignado</text>`, lx+370, ly-6, lx+388, ly+4)
+	b.WriteString(`</svg>`)
+	return b.String()
 }

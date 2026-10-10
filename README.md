@@ -62,6 +62,10 @@ Diseñar e implementar un sistema distribuido y concurrente de recomendación de
 │   ├── concurrent/                # Modo concurrente: productor / workers / recolector (+ variante pre-asignada)
 │   └── benchmark/                 # Comando que genera benchmarks/resultados_speedup.md
 ├── promela/                       # Modelado y verificación formal en Promela/Spin
+│   ├── src/main.pml               # Productor / workers / recolector (deadlock, exclusión mutua, integridad)
+│   ├── src/progreso.pml           # Exclusión mutua del RWMutex del módulo de progreso
+│   ├── verificar.sh               # Corre toda la verificación (Spin local o Docker)
+│   └── README.md                  # Propiedades, resultados y hallazgos
 ├── benchmarks/
 │   └── resultados_speedup.md      # Tabla y estadísticas de Speedup (T-Secuencial / T-Concurrente)
 └── README.md
@@ -156,7 +160,23 @@ CGO_ENABLED=1 go test -race ./...   # el detector de carreras necesita gcc (p. e
 go run ./benchmark -hardware "CPU / RAM / SO"
 ```
 
-El modo secuencial y el concurrente llaman a la misma función `shared.Recommend` con desempates fijos (mayor valor primero y, en empate, menor índice), por lo que la salida es idéntica byte a byte con cualquier número de workers. La aritmética usa `float64` (el pseudocódigo usa enteros 0-100 solo por compatibilidad con Promela).
+El modo secuencial y el concurrente llaman a la misma función `Dataset.Recommend` con desempates fijos (mayor valor primero y, en empate, menor índice), por lo que la salida es idéntica byte a byte con cualquier número de workers. La aritmética usa `float64` (el pseudocódigo usa enteros 0-100 solo por compatibilidad con Promela).
+
+### Verificación formal (Spin)
+
+```bash
+cd promela
+./verificar.sh              # unos 30 segundos; usa Spin local o Docker
+./verificar.sh --3workers   # opcional: 3 workers (pesado)
+```
+
+Detalle de las propiedades y resultados en `promela/README.md`.
+
+### Módulo de progreso concurrente
+
+`shared.LiveDataset` permite marcar cursos aprobados (`MarkApproved`) mientras otras goroutines piden
+recomendaciones (`Recommend`), con un `sync.RWMutex` por estudiante. Está fuera del camino de medición:
+los modos secuencial y concurrente usan el `Dataset` inmutable, sin locks. Sus pruebas corren con `go test -race`.
 
 ## Estado de las entregas
 
